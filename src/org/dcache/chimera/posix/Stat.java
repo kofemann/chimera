@@ -73,7 +73,7 @@ public class Stat {
     /**
      * Set number of references (link count)
      *
-     * @param newMTime
+     * @param newNlink
      */
     public void setNlink(int newNlink) {
         _nlink = newNlink;
@@ -182,7 +182,7 @@ public class Stat {
 
         Formatter formatter = new Formatter(sb);
 
-        formatter.format("%s %8d %6d %6d %6d %s %s", new Object[]{new UnixPermission(this.getMode()), this.getNlink(), this.getUid(), this.getGid(), this.getSize(), new java.sql.Date(this.getMTime()), new java.sql.Time(this.getMTime())});
+        formatter.format("%s %8d %6d %6d %6d %s %s", new UnixPermission(this.getMode()), this.getNlink(), this.getUid(), this.getGid(), this.getSize(), new java.sql.Date(this.getMTime()), new java.sql.Time(this.getMTime()));
         formatter.flush();
         formatter.close();
 

@@ -47,7 +47,7 @@ package org.dcache.chimera.examples.filebrowser;
  * @author Scott Violet
  * @version %I% %G%
  */
-public abstract class MergeSort extends Object {
+public abstract class MergeSort {
     protected Object toSort[];
     protected Object swapSpace[];
 

@@ -29,7 +29,6 @@ public class FsInode_PARENT extends FsInode {
     @Override
     public int read(long pos, byte[] data, int offset, int len) {
 
-
         int rc = -1;
 
         if (_parent == null) {
@@ -59,8 +58,6 @@ public class FsInode_PARENT extends FsInode {
         }
 
         return rc;
-
-
     }
 
     @Override
@@ -70,7 +67,6 @@ public class FsInode_PARENT extends FsInode {
         ret.setMode((ret.getMode() & 0000777) | UnixPermission.S_IFREG);
         if (_parent == null) {
             _parent = _fs.getParentOf(this).toString();
-            ;
         }
 
         if (_parent.equals(this.toString())) {
@@ -85,6 +81,5 @@ public class FsInode_PARENT extends FsInode {
     public int write(long pos, byte[] data, int offset, int len) {
         return -1;
     }
-
 
 }

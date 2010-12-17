@@ -65,7 +65,7 @@ public class Ls {
 
                 Formatter formatter = new Formatter();
 
-                formatter.format("%o %6d %6d %6d %6d %s %s", new Object[]{stat.getMode(), stat.getNlink(), stat.getUid(), stat.getGid(), stat.getSize(), new Date(stat.getMTime()), entry.getName()});
+                formatter.format("%o %6d %6d %6d %6d %s %s", stat.getMode(), stat.getNlink(), stat.getUid(), stat.getGid(), stat.getSize(), new Date(stat.getMTime()), entry.getName());
                 formatter.flush();
 
 

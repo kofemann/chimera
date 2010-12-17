@@ -1022,9 +1022,8 @@ public class JdbcFs implements FileSystemProvider {
                     throw new FileNotFoundHimeraFsException(name);
                 }
                 String[] args = new String[cmd.length - 2];
-                for (int i = 0; i < args.length; i++) {
-                    args[i] = cmd[i + 2];
-                }
+                System.arraycopy(cmd, 2, args, 0, args.length);
+
                 FsInode psetInode = new FsInode_PSET(this, cmd[1], args);
                 if (!psetInode.exists()) {
                     throw new FileNotFoundHimeraFsException(name);

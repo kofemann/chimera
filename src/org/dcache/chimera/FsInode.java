@@ -203,7 +203,7 @@ public class FsInode {
      *
      * @return new id
      */
-    public final static String generateNewID() {
+    public static String generateNewID() {
         return InodeId.newID(0);
     }
 
@@ -214,7 +214,7 @@ public class FsInode {
      * @param fsId
      * @return new id
      */
-    public final static String generateNewID(int fsId) {
+    public static String generateNewID(int fsId) {
         return InodeId.newID(fsId);
     }
 

@@ -1309,7 +1309,7 @@ class FsSqlDriver {
 
             rs = stIsIoEnabled.executeQuery();
             if (rs.next()) {
-                ioEnabled = rs.getInt("iio") == 1 ? true : false;
+                ioEnabled = rs.getInt("iio") == 1;
             }
 
         } finally {

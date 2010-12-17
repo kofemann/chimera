@@ -8,7 +8,7 @@ import javax.sql.DataSource;
 
 public class ChimeraFsHelper {
 
-    private ChimeraFsHelper() {};
+    private ChimeraFsHelper() {}
 
     public static FileSystemProvider getFileSystemProvider(String configFile)
             throws IOException, ClassNotFoundException, SQLException {
