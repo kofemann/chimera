@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry excluding="build/|build/core/|build/nfs/" kind="src" path=""/>
+	<classpathentry kind="src" path="build/core"/>
+	<classpathentry kind="src" path="build/nfs"/>
+	<classpathentry excluding="core/|nfs/" kind="src" path="build"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="lib" path="classes/c3p0-0.9.1.2.jar"/>
+	<classpathentry kind="lib" path="classes/jrpcgen.jar"/>
+	<classpathentry kind="lib" path="classes/log4j.jar"/>
+	<classpathentry kind="lib" path="classes/mysql.jar"/>
+	<classpathentry kind="lib" path="classes/ojdbc14.jar"/>
+	<classpathentry kind="lib" path="classes/oncrpc.jar"/>
+	<classpathentry kind="lib" path="classes/pgsql.jar"/>
+	<classpathentry kind="lib" path="classes/portmap.jar"/>
+	<classpathentry kind="output" path="build"/>
+</classpath>

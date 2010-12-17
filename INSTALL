@@ -1,0 +1,22 @@
+  $Id: INSTALL,v 1.3 2006/03/30 12:21:51 tigran Exp $
+  
+  
+To build/deploy Chimera, the following steps are needed:
+
+ 1) Build Chimera by invoicing command:
+    ant chimera.jar
+ 2) adopt config.xml file according your setup
+ 3) initilize database (For PostgreSQL):
+  as postgres user 
+  $ createdb chimera
+  $ psql chimera < sql/create.sql
+  $ createlang plpgsql chimera
+  $ psql himera < sql/pgsql-procedures.sql
+   
+ 4) build NFS interface
+ 	ant nfs3
+ 5) run nfs server (use -DiodeIoMode=true to enable file IO )
+    ant run_nfs3 -DiodeIoMode=true
+    
+
+See INSTALL.pNFS for NFSv4.1 instructions

@@ -1,0 +1,114 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <description>
+        RDBMS based file system implementation
+    </description>
+
+    <groupId>org.dcache.chimera</groupId>
+    <artifactId>chimera-core</artifactId>
+    <version>0.0.10-SNAPSHOT</version>
+    <name>RDBMS based file system implementation</name>
+    <packaging>jar</packaging>
+    <url>http://www.dCache.ORG</url>
+
+    <!--
+        CODE LICENSE
+    -->
+    <licenses>
+        <license>
+            <name>
+                GNU Lesser General Public License
+            </name>
+            <url>
+                http://www.fsf.org/licensing/licenses/lgpl.txt
+            </url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>tigran</id>
+            <name>Tigran Mkrtchyan</name>
+            <organization>dCache.ORG</organization>
+        </developer>
+    </developers>
+
+    <build>
+        <sourceDirectory>src</sourceDirectory>
+        <testSourceDirectory>test</testSourceDirectory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>2.0.2</version>
+                <configuration>
+                    <source>1.6</source>
+                    <target>1.6</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>2.2-beta-4</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>attached</goal>
+                        </goals>
+                        <phase>package</phase>
+                        <configuration>
+                            <descriptorRefs>
+                                <descriptorRef>jar-with-dependencies</descriptorRef>
+                            </descriptorRefs>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!--
+        EXTERNAL DEPENDENCIES
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>c3p0</groupId>
+            <artifactId>c3p0</artifactId>
+            <version>0.9.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.7</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>log4j</groupId>
+            <artifactId>log4j</artifactId>
+            <version>1.2.16</version>
+        </dependency>
+        <dependency>
+            <groupId>hsqldb</groupId>
+            <artifactId>hsqldb</artifactId>
+            <version>2.0.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <!--
+        MAVEN DEPLOYMENT REPOSITORY
+    -->
+    <distributionManagement>
+        <repository>
+            <id>dcache.org</id>
+            <url>http://www.dcache.org/nexus/content/repositories/releases</url>
+        </repository>
+        <snapshotRepository>
+            <id>dcache.org</id>
+            <url>http://www.dcache.org/nexus/content/repositories/snapshots</url>
+        </snapshotRepository>
+    </distributionManagement>
+</project>
