@@ -21,9 +21,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-import org.apache.log4j.Logger;
-
 import org.dcache.chimera.util.SqlHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 /**
@@ -35,7 +35,7 @@ class OracleFsSqlDriver extends FsSqlDriver {
     /**
      * logger
      */
-    private static final Logger _log = Logger.getLogger(OracleFsSqlDriver.class.getName());
+    private static final Logger _log = LoggerFactory.getLogger(OracleFsSqlDriver.class);
 
     /**
      * this is a utility class which is issues SQL queries on database

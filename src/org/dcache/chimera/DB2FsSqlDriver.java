@@ -16,11 +16,11 @@
  */
 package org.dcache.chimera;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.sql.Connection;
 import java.sql.SQLException;
-
-import org.apache.log4j.Logger;
-
 
 /**
  * Oracle specific SQL driver
@@ -31,7 +31,7 @@ class DB2FsSqlDriver extends FsSqlDriver {
     /**
      * logger
      */
-    private static final Logger _log = Logger.getLogger(DB2FsSqlDriver.class.getName());
+    private static final Logger _log = LoggerFactory.getLogger(DB2FsSqlDriver.class);
 
     /**
      * this is a utiliti class which is issues SQL queries on database

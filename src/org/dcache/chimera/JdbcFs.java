@@ -27,11 +27,12 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
-import org.apache.log4j.Logger;
 import org.dcache.chimera.posix.Stat;
 import org.dcache.chimera.store.AccessLatency;
 import org.dcache.chimera.store.InodeStorageInformation;
 import org.dcache.chimera.store.RetentionPolicy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.dcache.chimera.util.SqlHelper.*;
 
@@ -48,7 +49,7 @@ public class JdbcFs implements FileSystemProvider {
     /**
      * logger
      */
-    private static final Logger _log = Logger.getLogger(JdbcFs.class.getName());
+    private static final Logger _log = LoggerFactory.getLogger(JdbcFs.class);
 
     /**
      * the number of pnfs levels. Level zero associated with file real

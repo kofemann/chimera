@@ -22,17 +22,18 @@ import java.io.File;
 
 import javax.sql.DataSource;
 
-import org.apache.log4j.Logger;
 import org.dcache.chimera.DbConnectionInfo;
 import org.dcache.chimera.JdbcFs;
 import org.dcache.chimera.FsInode;
 import org.dcache.chimera.XMLconfig;
 import org.dcache.chimera.FileNotFoundHimeraFsException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 public class Touch {
 
-    private static final Logger _log = Logger.getLogger(Touch.class.getName());
+    private static final Logger _log = LoggerFactory.getLogger(Touch.class);
 
     public static void main(String args[]) {
 

@@ -24,13 +24,14 @@ import java.sql.SQLException;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-import org.apache.log4j.Logger;
 import org.dcache.chimera.posix.Stat;
 import org.dcache.chimera.util.SqlHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DirectoryStreamImpl implements DirectoryStreamB<HimeraDirectoryEntry>, Iterator<HimeraDirectoryEntry> {
 
-    private final static Logger _log = Logger.getLogger(DirectoryStreamImpl.class);
+    private final static Logger _log = LoggerFactory.getLogger(DirectoryStreamImpl.class);
     private final Connection _con;
     private final PreparedStatement _st;
     private final ResultSet _listResultSet;
@@ -57,7 +58,7 @@ public class DirectoryStreamImpl implements DirectoryStreamB<HimeraDirectoryEntr
         try {
             _con.close();
         } catch (SQLException e) {
-            _log.error("failed to close DB connection: " + e.getMessage());
+            _log.error("failed to close DB connection: {}", e.getMessage());
             throw new IOException(e.getMessage());
         }
     }

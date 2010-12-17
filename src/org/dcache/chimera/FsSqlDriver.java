@@ -29,13 +29,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import org.apache.log4j.Logger;
-
 import org.dcache.chimera.posix.Stat;
 import org.dcache.chimera.store.AccessLatency;
 import org.dcache.chimera.store.InodeStorageInformation;
 import org.dcache.chimera.store.RetentionPolicy;
 import org.dcache.chimera.util.SqlHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 /**
@@ -48,7 +48,7 @@ class FsSqlDriver {
     /**
      * logger
      */
-    private static final Logger _log = Logger.getLogger(FsSqlDriver.class.getName());
+    private static final Logger _log = LoggerFactory.getLogger(FsSqlDriver.class);
 
 
     /**

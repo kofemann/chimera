@@ -26,9 +26,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.ArrayList;
 
-import org.apache.log4j.Logger;
-
 import org.dcache.chimera.util.SqlHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 /**
@@ -40,10 +40,10 @@ class PgSQLFsSqlDriver extends FsSqlDriver {
     /**
      * logger
      */
-    private static final Logger _log = Logger.getLogger(PgSQLFsSqlDriver.class.getName());
+    private static final Logger _log = LoggerFactory.getLogger(PgSQLFsSqlDriver.class);
 
     /**
-     * this is a utiliti class which is issues SQL queries on database
+     * this is a utility class which is issues SQL queries on database
      */
     protected PgSQLFsSqlDriver() {
         _log.info("Running PostgreSQL specific Driver");

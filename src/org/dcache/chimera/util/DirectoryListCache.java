@@ -16,12 +16,13 @@
  */
 package org.dcache.chimera.util;
 
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DirectoryListCache<K, E> {
 
     private final CacheMap<K, E> _cache = new CacheMap<K, E>();
-    private static final Logger _log = Logger.getLogger(DirectoryListCache.class.getName());
+    private static final Logger _log = LoggerFactory.getLogger(DirectoryListCache.class);
 
     public void add(K key, E list) {
         add(key, list, 0);
@@ -52,9 +53,4 @@ public class DirectoryListCache<K, E> {
         _cache.remove(key);
     }
 }
-/*
- * $Log: DirectoryListCache.java,v $
- * Revision 1.1  2006/11/17 20:18:11  tigran
- * Duplicated code into new class
- *
- */
+

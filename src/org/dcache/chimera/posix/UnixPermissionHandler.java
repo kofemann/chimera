@@ -16,11 +16,12 @@
  */
 package org.dcache.chimera.posix;
 
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class UnixPermissionHandler implements AclHandler {
 
-    private static Logger _log = Logger.getLogger(UnixPermissionHandler.class.getName());
+    private static Logger _log = LoggerFactory.getLogger(UnixPermissionHandler.class);
 
     private static UnixPermissionHandler HANDLER = new UnixPermissionHandler();
 
@@ -103,7 +104,7 @@ public class UnixPermissionHandler implements AclHandler {
 
             } // switch( requsetedAcl )
 
-            _log.debug(sb);
+            _log.debug(sb.toString());
         }
 
 
@@ -187,25 +188,3 @@ public class UnixPermissionHandler implements AclHandler {
     }
 
 }
-
-/*
- * $Log: UnixPemissionsHandler.java,v $
- * Revision 1.6  2006/11/15 07:56:19  tigran
- * minor fixes
- *
- * Revision 1.5  2006/03/29 09:18:53  tigran
- * replaces StringBuffer by StringBuilder
- *
- * Revision 1.4  2006/03/26 23:00:24  tigran
- * code cleanup
- *
- * Revision 1.3  2006/03/15 12:52:32  tigran
- * addes generic User interface
- *
- * Revision 1.2  2006/03/14 16:43:09  tigran
- * uid -1 allowed to mount
- *
- * Revision 1.1  2006/03/09 15:49:37  tigran
- * added new permissions model
- *
- */
