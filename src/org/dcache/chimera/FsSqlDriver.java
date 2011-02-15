@@ -17,6 +17,7 @@
 package org.dcache.chimera;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -1339,7 +1340,7 @@ class FsSqlDriver {
         }
     }
 
-    int write(Connection dbConnection, FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) throws SQLException {
+    int write(Connection dbConnection, FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) throws SQLException, IOException {
 
         PreparedStatement ps = null;
         ResultSet rs = null;
@@ -1358,15 +1359,41 @@ class FsSqlDriver {
 
                 if (exist) {
                     // entry exist, update only
-                    String writeStream = "UPDATE t_inodes_data SET ifiledata=? WHERE ipnfsid=?";
+                    // read old data upto beginIndex
+                    ps = dbConnection.prepareStatement("SELECT ifiledata FROM t_inodes_data WHERE ipnfsid=?");
+                    ps.setString(1, inode.toString());
+                    rs = ps.executeQuery();
+                    if (rs.next()) {
+                        InputStream in = rs.getBinaryStream(1);
 
-                    ps = dbConnection.prepareStatement(writeStream);
+                        String writeStream = "UPDATE t_inodes_data SET ifiledata=? WHERE ipnfsid=?";
 
-                    ps.setBinaryStream(1, new ByteArrayInputStream(data, offset, len), len);
-                    ps.setString(2, inode.toString());
+                        ps = dbConnection.prepareStatement(writeStream);
 
-                    ps.executeUpdate();
-                    SqlHelper.tryToClose(ps);
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        int next = in.read();
+                        long curr = 0;
+                        while (next > -1 && curr != beginIndex) {
+                            bos.write(next);
+                            next = in.read();
+                            curr++;
+                        }
+                        bos.flush();
+                        byte[] currentBytes = bos.toByteArray();
+
+
+                        byte newBytes[] = new byte[currentBytes.length + data.length];
+                        System.arraycopy(currentBytes, 0, newBytes, 0, currentBytes.length);
+                        System.arraycopy(data, 0, newBytes, currentBytes.length, data.length);
+
+                        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(newBytes);
+
+                        ps.setBinaryStream(1, byteArrayInputStream, newBytes.length);
+                        ps.setString(2, inode.toString());
+
+                        ps.executeUpdate();
+                        SqlHelper.tryToClose(ps);
+                    }
 
                 } else {
                     // new entry
@@ -1387,7 +1414,7 @@ class FsSqlDriver {
 
                 ps = dbConnection.prepareStatement(writeStream);
 
-                ps.setLong(1, len);
+                ps.setLong(1, beginIndex+len);
                 ps.setString(2, inode.toString());
 
                 ps.executeUpdate();

@@ -216,6 +216,14 @@ public class JdbcFs implements FileSystemProvider {
                 _log.error("createLink rollback ", e);
             }
             throw new IOHimeraFsException(se.getMessage());
+        } catch (Exception se) {
+            _log.error("createLink ", se);
+            try {
+                dbConnection.rollback();
+            } catch (SQLException e) {
+                _log.error("createLink rollback ", e);
+            }
+            throw new IOHimeraFsException(se.getMessage());
         } finally {
             tryToClose(dbConnection);
         }
@@ -1610,13 +1618,21 @@ public class JdbcFs implements FileSystemProvider {
             try {
                 dbConnection.rollback();
             } catch (SQLException e1) {
-                _log.error("write rollback", e);
+                _log.error("write rollback", e1);
             }
             // according to SQL-92 standard, class-code 23503 is
             // a foreign key violation , in our case
             // file not found ( gone )
             if (e.getSQLState().equals("23503")) {
                 throw new FileNotFoundHimeraFsException();
+            }
+            _log.error("write", e);
+            throw new IOHimeraFsException(e.getMessage());
+       } catch (IOException e) {
+            try {
+                dbConnection.rollback();
+            } catch (SQLException e1) {
+                _log.error("write rollback", e1);
             }
             _log.error("write", e);
             throw new IOHimeraFsException(e.getMessage());
