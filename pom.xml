@@ -39,6 +39,13 @@
     <build>
         <sourceDirectory>src</sourceDirectory>
         <testSourceDirectory>test</testSourceDirectory>
+        <resources>
+            <resource>
+                <directory>resources</directory>
+                <includes>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -95,6 +102,11 @@
             <artifactId>hsqldb</artifactId>
             <version>2.0.0</version>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.liquibase</groupId>
+            <artifactId>liquibase-core</artifactId>
+            <version>2.0.1</version>
         </dependency>
     </dependencies>
 
