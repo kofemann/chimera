@@ -82,8 +82,6 @@ public class HFile extends File {
             return list;
         } catch (IOException e) {
             // Ignored
-        } catch (IOHimeraFsException e) {
-            // Ignored
         }
         // according to java.io.File javadoc:
         //

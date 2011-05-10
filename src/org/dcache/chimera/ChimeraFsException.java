@@ -16,7 +16,9 @@
  */
 package org.dcache.chimera;
 
-public class ChimeraFsException extends java.lang.Exception {
+import java.io.IOException;
+
+public class ChimeraFsException extends IOException {
 
     /**
      *
@@ -40,5 +42,14 @@ public class ChimeraFsException extends java.lang.Exception {
     public ChimeraFsException(String msg) {
         super(msg);
     }
+
+    public ChimeraFsException(Throwable cause) {
+        super(cause);
+    }
+
+    public ChimeraFsException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
 }
 
