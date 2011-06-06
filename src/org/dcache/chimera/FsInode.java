@@ -181,7 +181,7 @@ public class FsInode {
     }
 
     private long buildDecodedAndXoredInodeId() {
-        long inodeId = 0;
+        long inodeId = 1;
 
         for (int index = 0; index < _id.length(); index += NIBBLES_IN_32_BIT_INTEGER) {
             int endIndex = index + NIBBLES_IN_32_BIT_INTEGER;
