@@ -18,6 +18,7 @@ package org.dcache.chimera;
 
 import java.io.Closeable;
 import java.util.List;
+import org.dcache.acl.ACE;
 
 import org.dcache.chimera.posix.Stat;
 import org.dcache.chimera.store.AccessLatency;
@@ -234,4 +235,19 @@ public interface FileSystemProvider extends Closeable {
      */
     public abstract FsStat getFsStat() throws ChimeraFsException;
 
+    /**
+     * Get list of Access Control Entries for specified inode.
+     * @param inode
+     * @return ordered list of {@link ACE}.
+     * @throws ChimeraFsException
+     */
+    public abstract List<ACE> getACL(FsInode inode) throws ChimeraFsException;
+
+    /**
+     * Set Access Control Entries list for specified inode.
+     * @param inode
+     * @param acl
+     * @throws ChimeraFsException
+     */
+    public abstract void setACL(FsInode inode, List<ACE> acl) throws ChimeraFsException;
 }
