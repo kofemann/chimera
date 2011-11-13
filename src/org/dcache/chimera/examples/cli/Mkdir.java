@@ -35,19 +35,12 @@ public class Mkdir {
      */
     public static void main(String[] args) throws Exception {
 
-        String path = "";
-        boolean createParents = false;
-
-        if (args.length == 2) {
-            path = args[1];
-            createParents = false;
-        } else if ((args.length == 3) && (args[1].equals("-p"))) {
-            path = args[2];
-            createParents = true;
-        } else {
+        if (args.length != 2) {
             System.err.println("Usage :" + Mkdir.class.getName() + " <chimera.config> [-p] <chimera path>");
             System.exit(4);
         }
+
+        String path = args[1];
 
         XMLconfig config = new XMLconfig(new File("config.xml"));
 
@@ -58,12 +51,7 @@ public class Mkdir {
 
         FileSystemProvider fs = new JdbcFs(DataSources.pooledDataSource(dataSource), connectionInfo.getDBdialect());
 
-        if (createParents) {
-            fs.mkdirs(path);
-        } else {
-            fs.mkdir(path);
-        }
-
+        fs.mkdir(path);
     }
 
 }

@@ -805,57 +805,6 @@ public class JdbcFs implements FileSystemProvider {
         return inode;
     }
 
-    public FsInode mkdirs(String name) throws ChimeraFsException {
-        return mkdirs(name, UID_ROOT, GID_ROOT, DEFAULT_DIR_PERMISSION);
-    }
-
-    public FsInode mkdirs(String name, int owner, int group, int mode) throws ChimeraFsException {
-
-
-        if (name.isEmpty() || !name.startsWith(PATH_SEPARATOR)) {
-            throw new IllegalArgumentException("Directory path must start " + "with " + PATH_SEPARATOR + "!");
-
-        }
-
-        /* always start from root, as we don't know which directories already
-         * exist
-         */
-        String[] pathComponents = name.substring(1).split(PATH_SEPARATOR);
-        FsInode curInode = FsInode.getRoot(this);
-
-        Connection dbConnection;
-        try {
-            dbConnection = _dbConnectionsPool.getConnection();
-            dbConnection.setAutoCommit(false);
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-
-            for (String pathComponent : pathComponents) {
-                curInode = _sqlDriver.mkdirIfNotExists(dbConnection, curInode, pathComponent, owner, group, mode);
-                dbConnection.commit();
-            }
-
-        } catch (SQLException se) {
-
-            try {
-                dbConnection.rollback();
-                _log.error("mkdirs", se);
-            } catch (SQLException se2) {
-                _log.error("mkdirs", se2);
-            }
-
-            throw new ChimeraFsException(se.getMessage());
-
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return curInode;
-    }
-
     public FsInode path2inode(String path) throws ChimeraFsException {
         return path2inode(path, _rootInode);
     }

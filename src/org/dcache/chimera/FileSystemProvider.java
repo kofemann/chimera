@@ -88,31 +88,6 @@ public interface FileSystemProvider extends Closeable {
 
     public abstract FsInode mkdir(FsInode parent, String name, int owner, int group, int mode) throws ChimeraFsException;
 
-    /**
-     * Directories created by this method will be owned by root and have
-     * 755 Unix permissions.
-     *
-     * @param path The full path of the directory structure that should be
-     *             created
-     * @return The Inode of the bottom-most newly created directory
-     *         or null, if no directory was created.
-     * @throws ChimeraFsException
-     * @see #mkdirs(String, int, int, int)
-     */
-    public abstract FsInode mkdirs(String path) throws ChimeraFsException;
-
-    /**
-     * Make a directory and all its parent directories. Don't fail if the
-     * directory exists.
-     *
-     * @param name The full path of the directory structure that should be
-     *             created
-     * @return The Inode of the bottom-most newly created directory
-     *         or null, if no directory was created.
-     * @throws ChimeraFsException
-     */
-    public abstract FsInode mkdirs(String path, int owner, int group, int mode) throws ChimeraFsException;
-
     public abstract FsInode path2inode(String path) throws ChimeraFsException;
 
     public abstract FsInode path2inode(String path, FsInode startFrom) throws ChimeraFsException;
