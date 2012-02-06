@@ -14,15 +14,16 @@
  * details); if not, write to the Free Software Foundation, Inc.,
  * 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-package org.dcache.chimera;
+package org.dcache.chimera.examples.cli;
 
 
-import com.mchange.v2.c3p0.DataSources;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
-import javax.sql.DataSource;
+import org.dcache.chimera.DirectoryStreamB;
+import org.dcache.chimera.FileSystemProvider;
+import org.dcache.chimera.FsInode;
+import org.dcache.chimera.HimeraDirectoryEntry;
 
 
 public class FsShell {
@@ -30,19 +31,13 @@ public class FsShell {
     public static void main(String args[]) {
 
         if (args.length != 1) {
-            System.err.println("Usage: FsShell <config>");
+            System.err.println("Usage: FsShell " + FsFactory.USAGE);
             System.exit(1);
         }
 
         try {
 
-            XMLconfig xmlConfig = new XMLconfig(new File(args[0]));
-            DbConnectionInfo connectionInfo = xmlConfig.getDbInfo(0);
-            Class.forName(connectionInfo.getDBdrv());
-
-            DataSource dataSource = DataSources.unpooledDataSource(connectionInfo.getDBurl(), connectionInfo.getDBuser(), connectionInfo.getDBpass());
-
-            FileSystemProvider fs = new JdbcFs(DataSources.pooledDataSource(dataSource), connectionInfo.getDBdialect());
+            FileSystemProvider fs = FsFactory.createFileSystem(args);
 
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
             boolean prompt = true;

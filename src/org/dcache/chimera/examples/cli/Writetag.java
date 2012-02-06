@@ -16,63 +16,67 @@
  */
 package org.dcache.chimera.examples.cli;
 
-import com.mchange.v2.c3p0.DataSources;
-
-import java.io.File;
-
-import javax.sql.DataSource;
-
-import org.dcache.chimera.DbConnectionInfo;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import org.dcache.chimera.FileNotFoundHimeraFsException;
 import org.dcache.chimera.FileSystemProvider;
 import org.dcache.chimera.FsInode;
-import org.dcache.chimera.JdbcFs;
-import org.dcache.chimera.XMLconfig;
 
 public class Writetag {
 
     public static void main(String[] args) throws Exception {
+        int programArgc = args.length - FsFactory.ARGC;
 
-        if (args.length != 3) {
-            System.err.println("Usage :" + Readtag.class.getName() + " <chimera.config> <chimera path> <tag>");
+        if (programArgc < 2 || programArgc > 3) {
+            System.err.println(
+                    "Usage : " + Readtag.class.getName() + " " + FsFactory.USAGE
+                    + " <chimera path> <tag> [<data>]");
             System.exit(4);
         }
 
-        XMLconfig config = new XMLconfig(new File("config.xml"));
+        FileSystemProvider fs = FsFactory.createFileSystem(args);
 
-        DbConnectionInfo connectionInfo = config.getDbInfo(0);
-        Class.forName(connectionInfo.getDBdrv());
-
-        DataSource dataSource = DataSources.unpooledDataSource(connectionInfo.getDBurl(), connectionInfo.getDBuser(), connectionInfo.getDBpass());
-
-        FileSystemProvider fs = new JdbcFs(DataSources.pooledDataSource(dataSource), connectionInfo.getDBdialect());
-
-        FsInode inode = fs.path2inode(args[1]);
+        FsInode inode = fs.path2inode(args[FsFactory.ARGC]);
+        String tag = args[FsFactory.ARGC + 1];
 
         try {
-
-            fs.statTag(inode, args[2]);
-
+            fs.statTag(inode, tag);
         } catch (FileNotFoundHimeraFsException fnf) {
-            fs.createTag(inode, args[2]);
+            fs.createTag(inode, tag);
         }
 
+        byte[] data = programArgc == 2 ? toByteArray(System.in)
+                : newLineTerminated(args[FsFactory.ARGC + 2]).getBytes();
 
-        byte[] data = new byte[4096];
-
-        int len = 0;
-
-        while (len < data.length) {
-
-            int n = System.in.read(data, len, data.length - len);
-            if (n <= 0) break;
-            len += n;
-
+        if (data.length > 0) {
+            fs.setTag(inode, tag, data, 0, data.length);
         }
-        if (len > 0) {
-            fs.setTag(inode, args[2], data, 0, len);
-        }
-
     }
 
+    private static String newLineTerminated(String unknown) {
+        return unknown.endsWith("\n") ? unknown : unknown + "\n";
+    }
+
+    public static long copy(InputStream from, OutputStream to)
+            throws IOException {
+        byte[] buf = new byte[4096];
+        long total = 0;
+        while (true) {
+            int r = from.read(buf);
+            if (r == -1) {
+                break;
+            }
+            to.write(buf, 0, r);
+            total += r;
+        }
+        return total;
+    }
+
+    public static byte[] toByteArray(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        copy(in, out);
+        return out.toByteArray();
+    }
 }

@@ -16,46 +16,27 @@
  */
 package org.dcache.chimera.examples.cli;
 
-import com.mchange.v2.c3p0.DataSources;
-
-import java.io.File;
 import java.util.Date;
 import java.util.Formatter;
 
-import javax.sql.DataSource;
-
-import org.dcache.chimera.DbConnectionInfo;
 import org.dcache.chimera.DirectoryStreamB;
 import org.dcache.chimera.FileSystemProvider;
 import org.dcache.chimera.FsInode;
 import org.dcache.chimera.HimeraDirectoryEntry;
-import org.dcache.chimera.JdbcFs;
-import org.dcache.chimera.XMLconfig;
 import org.dcache.chimera.posix.Stat;
 
 public class Ls {
 
-    /**
-     * @param args
-     * @throws Exception
-     */
     public static void main(String[] args) throws Exception {
 
-        if (args.length != 2) {
-            System.err.println("Usage :" + Ls.class.getName() + " <chimera.config> <chimera path>");
+        if (args.length != FsFactory.ARGC + 1) {
+            System.err.println("Usage : " + Ls.class.getName() + " " + FsFactory.USAGE
+                    + " <chimera path>");
             System.exit(4);
         }
 
-        XMLconfig config = new XMLconfig(new File("config.xml"));
-
-        DbConnectionInfo connectionInfo = config.getDbInfo(0);
-        Class.forName(connectionInfo.getDBdrv());
-
-        DataSource dataSource = DataSources.unpooledDataSource(connectionInfo.getDBurl(), connectionInfo.getDBuser(), connectionInfo.getDBpass());
-
-        FileSystemProvider fs = new JdbcFs(DataSources.pooledDataSource(dataSource), connectionInfo.getDBdialect());
-
-        FsInode inode = fs.path2inode(args[1]);
+        FileSystemProvider fs = FsFactory.createFileSystem(args);
+        FsInode inode = fs.path2inode(args[FsFactory.ARGC]);
 
         DirectoryStreamB<HimeraDirectoryEntry> dirStream = inode.newDirectoryStream();
         int count = 0;
@@ -65,7 +46,8 @@ public class Ls {
 
                 Formatter formatter = new Formatter();
 
-                formatter.format("%o %6d %6d %6d %6d %s %s", stat.getMode(), stat.getNlink(), stat.getUid(), stat.getGid(), stat.getSize(), new Date(stat.getMTime()), entry.getName());
+                formatter.format("%o %6d %6d %6d %6d %s %s", new Object[]{stat.getMode(), stat.getNlink(), stat.getUid(), stat.getGid(), stat.getSize(), new Date(
+                            stat.getMTime()), entry.getName()});
                 formatter.flush();
 
 
@@ -76,7 +58,5 @@ public class Ls {
             dirStream.close();
         }
         System.out.println("Total: " + count);
-
     }
-
 }

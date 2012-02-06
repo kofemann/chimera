@@ -16,42 +16,24 @@
  */
 package org.dcache.chimera.examples.cli;
 
-import com.mchange.v2.c3p0.DataSources;
-
-import java.io.File;
-
-import javax.sql.DataSource;
-
-import org.dcache.chimera.DbConnectionInfo;
 import org.dcache.chimera.FileSystemProvider;
 import org.dcache.chimera.FsInode;
-import org.dcache.chimera.JdbcFs;
-import org.dcache.chimera.XMLconfig;
 
 public class Chown {
 
-
     public static void main(String[] args) throws Exception {
 
-        if (args.length != 3) {
-            System.err.println("Usage :" + Chown.class.getName() + " <chimera.config> <chimera path> <uid>");
+        if (args.length != FsFactory.ARGC + 2) {
+            System.err.println(
+                    "Usage : " + Chown.class.getName() + " " + FsFactory.USAGE
+                    + " <chimera path> <uid>");
             System.exit(4);
         }
 
-        int uid = Integer.parseInt(args[2]);
+        int uid = Integer.parseInt(args[FsFactory.ARGC + 1]);
 
-
-        XMLconfig config = new XMLconfig(new File("config.xml"));
-
-        DbConnectionInfo connectionInfo = config.getDbInfo(0);
-        Class.forName(connectionInfo.getDBdrv());
-
-        DataSource dataSource = DataSources.unpooledDataSource(connectionInfo.getDBurl(), connectionInfo.getDBuser(), connectionInfo.getDBpass());
-
-        FileSystemProvider fs = new JdbcFs(DataSources.pooledDataSource(dataSource), connectionInfo.getDBdialect());
-
-
-        FsInode inode = fs.path2inode(args[1]);
+        FileSystemProvider fs = FsFactory.createFileSystem(args);
+        FsInode inode = fs.path2inode(args[FsFactory.ARGC]);
 
         inode.setUID(uid);
     }

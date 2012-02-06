@@ -17,41 +17,21 @@
  */
 package org.dcache.chimera.examples.cli;
 
-import com.mchange.v2.c3p0.DataSources;
-
-
-import java.io.File;
-import javax.sql.DataSource;
-
-import org.dcache.chimera.DbConnectionInfo;
 import org.dcache.chimera.FileSystemProvider;
-import org.dcache.chimera.JdbcFs;
-import org.dcache.chimera.XMLconfig;
 
 public class Mkdir {
-    /**
-     * @param args
-     * @throws Exception
-     */
+
     public static void main(String[] args) throws Exception {
 
-        if (args.length != 2) {
-            System.err.println("Usage :" + Mkdir.class.getName() + " <chimera.config> [-p] <chimera path>");
+        if (args.length != FsFactory.ARGC + 1) {
+            System.err.println(
+                    "Usage : " + Mkdir.class.getName() + " " + FsFactory.USAGE
+                    + " <chimera path>");
             System.exit(4);
         }
 
-        String path = args[1];
+        FileSystemProvider fs = FsFactory.createFileSystem(args);
 
-        XMLconfig config = new XMLconfig(new File("config.xml"));
-
-        DbConnectionInfo connectionInfo = config.getDbInfo(0);
-        Class.forName(connectionInfo.getDBdrv());
-
-        DataSource dataSource = DataSources.unpooledDataSource(connectionInfo.getDBurl(), connectionInfo.getDBuser(), connectionInfo.getDBpass());
-
-        FileSystemProvider fs = new JdbcFs(DataSources.pooledDataSource(dataSource), connectionInfo.getDBdialect());
-
-        fs.mkdir(path);
+        fs.mkdir(args[FsFactory.ARGC]);
     }
-
 }

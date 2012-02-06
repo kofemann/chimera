@@ -1,10 +1,9 @@
 package org.dcache.chimera;
 
 import java.sql.Connection;
-import com.mchange.v2.c3p0.DataSources;
 import java.io.FileReader;
+import java.sql.DriverManager;
 import java.util.Properties;
-import javax.sql.DataSource;
 import liquibase.Liquibase;
 import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
@@ -26,10 +25,9 @@ public abstract class ChimeraTestCaseHelper {
         dbProperties.load(new FileReader("chimera-test.properties"));
 
         Class.forName(dbProperties.getProperty("chimera.db.driver"));
-        DataSource dataSource = DataSources.unpooledDataSource(dbProperties.getProperty("chimera.db.url"),
+        _conn = DriverManager.getConnection(dbProperties.getProperty("chimera.db.url"),
                 dbProperties.getProperty("chimera.db.user"), dbProperties.getProperty("chimera.db.password"));
 
-        _conn = dataSource.getConnection();
         _conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
 
         Database database = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(new JdbcConnection(_conn));
@@ -42,7 +40,12 @@ public abstract class ChimeraTestCaseHelper {
          */
 
         liquibase.update("");
-        _fs = new JdbcFs(DataSources.pooledDataSource(dataSource), dbProperties.getProperty("chimera.db.dialect"));
+        _fs = ChimeraFsHelper.getFileSystemProvider(
+                dbProperties.getProperty("chimera.db.url"),
+                dbProperties.getProperty("chimera.db.driver"),
+                dbProperties.getProperty("chimera.db.user"),
+                dbProperties.getProperty("chimera.db.password"),
+                dbProperties.getProperty("chimera.db.dialect") );
         _rootInode = _fs.path2inode("/");
     }
 
