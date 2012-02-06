@@ -2,6 +2,7 @@ package org.dcache.chimera;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.dcache.acl.ACE;
@@ -758,5 +759,21 @@ public class BasicTest extends ChimeraTestCaseHelper {
         level1of1.write(0, data, 0, data.length);
         assertTrue(_fs.move(base, "testCreateFile2", base, "testCreateFile1"));
 
+    }
+
+    private final Random _rnd = new Random(0);
+
+    private String randomName(int size) {
+        char[] s = new char[size];
+        for (int i = 0; i < s.length; i++) {
+            s[i] = (char) _rnd.nextInt();
+        }
+        return new String(s);
+    }
+
+    @Test(expected=InvalidNameChimeraException.class)
+    public void testNameTooLong() throws Exception {
+        String tooLongName = randomName(257);
+        FsInode base = _rootInode.mkdir(tooLongName);
     }
 }

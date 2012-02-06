@@ -62,7 +62,11 @@ class FsSqlDriver {
     private final static int IOMODE_ENABLE = 1;
     private final static int IOMODE_DISABLE = 0;
 
-    private final int _ioMode;
+    /**
+     * maximal length of an object name in a directory.
+     */
+    private final static int MAX_NAME_LEN = 256;
+    private final int _ioMode;    
 
     /**
      * this is a utility class which is issues SQL queries on database
@@ -886,7 +890,11 @@ class FsSqlDriver {
      * @param inode
      * @throws java.sql.SQLException
      */
-    void createEntryInParent(Connection dbConnection, FsInode parent, String name, FsInode inode) throws SQLException {
+    void createEntryInParent(Connection dbConnection, FsInode parent, String name, FsInode inode) throws SQLException, InvalidNameChimeraException {
+
+        if(name.length() > MAX_NAME_LEN) {
+            throw new InvalidNameChimeraException("Name too long");
+        }
 
         PreparedStatement stInserIntoParent = null;
         try {
