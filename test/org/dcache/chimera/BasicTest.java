@@ -812,4 +812,10 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         assertEquals(0007 | UnixPermission.S_IFREG, tagInode.stat().getMode());
     }
+
+    @Test(expected=FileNotFoundHimeraFsException.class)
+    public void testInodeOfNonExisting() throws Exception {
+        FsInode inode = _rootInode.inodeOf("someFile");
+    }
+    
 }
