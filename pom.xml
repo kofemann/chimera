@@ -146,4 +146,10 @@
             <url>http://www.dcache.org/nexus/content/repositories/snapshots</url>
         </snapshotRepository>
     </distributionManagement>
+    <repositories>
+        <repository>
+            <id>dccache.org</id>
+            <url>https://download.dcache.org/nexus/content/groups/public/</url>
+        </repository>
+    </repositories>
 </project>
