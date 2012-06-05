@@ -817,5 +817,17 @@ public class BasicTest extends ChimeraTestCaseHelper {
     public void testInodeOfNonExisting() throws Exception {
         FsInode inode = _rootInode.inodeOf("someFile");
     }
-    
+
+    @Test
+    public void testLevelRemoveOnDelete() throws Exception {
+        final int level = 1;
+        FsInode inode = _rootInode.create("testLevelRemoveOnDelete", 0, 0, 0644);
+        _fs.createFileLevel(inode, level);
+        FsInode levelInode = new FsInode(_fs, inode.toString(), level);
+        assertTrue(levelInode.exists());
+
+        _fs.remove(_rootInode, "testLevelRemoveOnDelete");
+        levelInode = new FsInode(_fs, inode.toString(), level);
+        assertFalse(levelInode.exists());
+    }
 }

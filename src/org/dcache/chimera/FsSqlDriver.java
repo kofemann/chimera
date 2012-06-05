@@ -307,15 +307,6 @@ class FsSqlDriver {
         setFileMTime(dbConnection, parent, 0, System.currentTimeMillis());
 
         if (isLast) {
-            // it's the last reference
-
-            /*
-            * TODO: put into trash
-            */
-            for (int i = 1; i <= 7; i++) {
-                removeInodeLevel(dbConnection, inode, i);
-            }
-
             return removeInode(dbConnection, inode);
         }
 
