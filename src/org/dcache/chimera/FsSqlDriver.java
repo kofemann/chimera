@@ -1151,7 +1151,7 @@ class FsSqlDriver {
                 ps = dbConnection.prepareStatement(sqlSetInodeAttributes);
 
                 ps.setTimestamp(1, new Timestamp(stat.getATime()));
-                ps.setTimestamp(2, new Timestamp(System.currentTimeMillis())); // even if client sends a new mtime, the real mtime is NOW
+                ps.setTimestamp(2, new Timestamp(stat.getMTime()));
                 ps.setLong(3, stat.getSize());
                 ps.setInt(4, stat.getUid());
                 ps.setInt(5, stat.getGid());
@@ -1163,7 +1163,7 @@ class FsSqlDriver {
                 ps = dbConnection.prepareStatement(fileSetModeQuery);
 
                 ps.setTimestamp(1, new Timestamp(stat.getATime()));
-                ps.setTimestamp(2, new Timestamp(System.currentTimeMillis())); // even if client sends a new mtime, the real mtime is NOW
+                ps.setTimestamp(2, new Timestamp(stat.getMTime()));
                 ps.setInt(3, stat.getUid());
                 ps.setInt(4, stat.getGid());
                 ps.setInt(5, stat.getMode());
