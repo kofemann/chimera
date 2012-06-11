@@ -44,15 +44,31 @@ public enum Who {
 
     private final int _value;
 
-    private final String _label;
+    private final String _abbreviation;
 
     private Who(int value, String abbreviation) {
         _value = value;
-        _label = abbreviation;
+        _abbreviation = abbreviation;
     }
 
     public int getValue() {
         return _value;
+    }
+
+    public String getAbbreviation() {
+        return _abbreviation;
+    }
+
+    public boolean equals(int value) {
+        return _value == value;
+    }
+
+    public boolean equals(String abbreviation) {
+        return _abbreviation.equals(abbreviation);
+    }
+
+    public boolean equalsIgnoreCase(String abbreviation) {
+        return _abbreviation.equalsIgnoreCase(abbreviation);
     }
 
     public static Who valueOf(int value) throws IllegalArgumentException {
@@ -63,4 +79,27 @@ public enum Who {
         throw new IllegalArgumentException("Illegal argument (value of who): " + value);
     }
 
+    public static Who fromAbbreviation(String abbreviation) throws IllegalArgumentException {
+        if ( abbreviation == null || abbreviation.length() == 0 )
+            throw new IllegalArgumentException("Who abbreviation is " + (abbreviation == null ? "NULL" : "Empty"));
+
+        if ( USER.equalsIgnoreCase(abbreviation) )
+            return USER;
+        else if ( GROUP.equalsIgnoreCase(abbreviation) )
+            return GROUP;
+        else if ( OWNER.equalsIgnoreCase(abbreviation) )
+            return OWNER;
+        else if ( OWNER_GROUP.equalsIgnoreCase(abbreviation) )
+            return OWNER_GROUP;
+        else if ( EVERYONE.equalsIgnoreCase(abbreviation) )
+            return EVERYONE;
+        else if ( ANONYMOUS.equalsIgnoreCase(abbreviation) )
+            return ANONYMOUS;
+        else if ( AUTHENTICATED.equalsIgnoreCase(abbreviation) )
+            return AUTHENTICATED;
+        else if ( abbreviation.endsWith("@") )
+            throw new IllegalArgumentException("Invalid who abbreviation: " + abbreviation);
+
+        return null;
+    }
 }
