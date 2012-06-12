@@ -1133,7 +1133,7 @@ class FsSqlDriver {
         }
     }
 
-    private static final String sqlSetInodeAttributes = "UPDATE t_inodes SET iatime=?, imtime=?, isize=?, iuid=?, igid=?, imode=?, itype=? WHERE ipnfsid=?";
+    private static final String sqlSetInodeAttributes = "UPDATE t_inodes SET iatime=?, imtime=?, ictime=?, isize=?, iuid=?, igid=?, imode=?, itype=? WHERE ipnfsid=?";
 
     void setInodeAttributes(Connection dbConnection, FsInode inode, int level, Stat stat) throws SQLException {
 
@@ -1152,12 +1152,13 @@ class FsSqlDriver {
 
                 ps.setTimestamp(1, new Timestamp(stat.getATime()));
                 ps.setTimestamp(2, new Timestamp(stat.getMTime()));
-                ps.setLong(3, stat.getSize());
-                ps.setInt(4, stat.getUid());
-                ps.setInt(5, stat.getGid());
-                ps.setInt(6, stat.getMode() & UnixPermission.S_PERMS);
-                ps.setInt(7, stat.getMode() & UnixPermission.S_TYPE);
-                ps.setString(8, inode.toString());
+                ps.setTimestamp(3, new Timestamp(System.currentTimeMillis()));
+                ps.setLong(4, stat.getSize());
+                ps.setInt(5, stat.getUid());
+                ps.setInt(6, stat.getGid());
+                ps.setInt(7, stat.getMode() & UnixPermission.S_PERMS);
+                ps.setInt(8, stat.getMode() & UnixPermission.S_TYPE);
+                ps.setString(9, inode.toString());
             } else {
                 String fileSetModeQuery = "UPDATE t_level_" + level + " SET iatime=?, imtime=?, iuid=?, igid=?, imode=? WHERE ipnfsid=?";
                 ps = dbConnection.prepareStatement(fileSetModeQuery);
