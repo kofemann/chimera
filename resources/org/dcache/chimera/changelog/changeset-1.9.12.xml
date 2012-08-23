@@ -7,7 +7,7 @@
 
     <changeSet author="tigran" id="7" dbms="postgresql">
         <createProcedure>
-            DROP TRIGGER IF EXISTS tgr_insertACL ON t_dirs
+            DROP TRIGGER IF EXISTS tgr_insertACL ON t_dirs;
 
             CREATE OR REPLACE FUNCTION f_insertACL() RETURNS trigger AS $$
             DECLARE
@@ -42,7 +42,7 @@
                         INSERT INTO t_acl
                         SELECT id, rstype, type, (flags | msk) # msk, access_msk, who, who_id, address_msk, ace_order
                         FROM t_acl
-                        WHERE  rs_id = parentid AND (flags - flag > 0);
+                        WHERE  rs_id = parentid AND ((flags &amp; flag) > 0);
                     END IF;
                 END IF;
                 RETURN NULL;
