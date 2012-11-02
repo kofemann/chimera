@@ -343,42 +343,52 @@ public class FsInode {
         return fs.path2inode("/");
     }
 
-    public boolean exists() {
+    public boolean exists() throws ChimeraFsException {
 
         boolean rc = false;
 
         try {
             _stat = this.statCache();
             rc = true;
-        } catch (ChimeraFsException hfe) {
+        } catch (FileNotFoundHimeraFsException hfe) {
         }
 
         return rc;
     }
 
-
+    /**
+     * Tests whether the file denoted by this abstract pathname is a directory.
+     *
+     * @return {@code true} if and only if the file denoted by this inode exists
+     * and is a directory; {@code false} otherwise
+     */
     public boolean isDirectory() {
 
-        boolean rc = false;
-
-        if (exists() && ((_stat.getMode() & UnixPermission.S_IFDIR) == UnixPermission.S_IFDIR)) {
-            rc = true;
+        try {
+            return new UnixPermission(statCache().getMode()).isDir();
+        } catch (ChimeraFsException e) {
+            // NOP
         }
 
-        return rc;
+        return false;
     }
 
-    public boolean isLink() {
-
-        boolean rc = false;
-
-        if (exists() && new UnixPermission(_stat.getMode()).isSymLink()) {
-            rc = true;
+    /**
+     * Tests whether the file denoted by this abstract pathname is a symbolic
+     * link.
+     *
+     * @return {@code true} if and only if the file denoted by this inode exists
+     * and is a symbolic link; {@code false} otherwise
+     */
+    public boolean isLink() throws ChimeraFsException {
+        try {
+            return new UnixPermission(statCache().getMode()).isSymLink();
+        } catch (ChimeraFsException e) {
+            // NOP
         }
 
-        return rc;
+        return false;
     }
-
 
     public byte[] readlink() throws ChimeraFsException {
 
