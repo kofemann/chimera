@@ -2230,7 +2230,7 @@ public class JdbcFs implements FileSystemProvider {
         }
     }
 
-    public InodeStorageInformation getSorageInfo(FsInode inode) throws ChimeraFsException {
+    public InodeStorageInformation getStorageInfo(FsInode inode) throws ChimeraFsException {
 
         Connection dbConnection = null;
         try {
