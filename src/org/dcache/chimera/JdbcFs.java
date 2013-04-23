@@ -54,6 +54,11 @@ public class JdbcFs implements FileSystemProvider {
     private static final Logger _log = LoggerFactory.getLogger(JdbcFs.class);
 
     /**
+     * maximal length of an object name in a directory.
+     */
+    private final static int MAX_NAME_LEN = 256;
+
+    /**
      * the number of pnfs levels. Level zero associated with file real
      * content, which is not our regular case.
      */
@@ -390,6 +395,8 @@ public class JdbcFs implements FileSystemProvider {
                 if (!parent.exists()) {
                     throw new FileNotFoundHimeraFsException("parent=" + parent.toString());
                 }
+
+                checkNameLength(name);
 
                 if (parent.isDirectory()) {
                     // read/write only
@@ -761,6 +768,8 @@ public class JdbcFs implements FileSystemProvider {
     }
 
     public FsInode mkdir(FsInode parent, String name, int owner, int group, int mode) throws ChimeraFsException {
+
+        checkNameLength(name);
 
         Connection dbConnection = null;
         try {
@@ -1668,6 +1677,8 @@ public class JdbcFs implements FileSystemProvider {
 
     public boolean move(FsInode srcDir, String source, FsInode destDir, String dest) throws ChimeraFsException {
 
+        checkNameLength(dest);
+
         Connection dbConnection = null;
         try {
             // get from pool
@@ -2484,6 +2495,12 @@ public class JdbcFs implements FileSystemProvider {
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
+        }
+    }
+
+    private static void checkNameLength(String name) throws InvalidNameChimeraException {
+        if (name.length() > MAX_NAME_LEN) {
+            throw new InvalidNameChimeraException("Name too long");
         }
     }
 

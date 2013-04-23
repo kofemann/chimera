@@ -772,9 +772,22 @@ public class BasicTest extends ChimeraTestCaseHelper {
     }
 
     @Test(expected=InvalidNameChimeraException.class)
-    public void testNameTooLong() throws Exception {
+    public void testNameTooDirLong() throws Exception {
         String tooLongName = randomName(257);
         FsInode base = _rootInode.mkdir(tooLongName);
+    }
+
+    @Test(expected = InvalidNameChimeraException.class)
+    public void testNameTooFileLong() throws Exception {
+        String tooLongName = randomName(257);
+        FsInode base = _rootInode.create(tooLongName, 0, 0, 0644);
+    }
+
+    @Test(expected = InvalidNameChimeraException.class)
+    public void testNameTooMoveLong() throws Exception {
+        String tooLongName = randomName(257);
+        _rootInode.mkdir("testNameTooMoveLong");
+        _fs.move(_rootInode, "testNameTooMoveLong", _rootInode, tooLongName);
     }
 
     @Test
