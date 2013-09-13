@@ -351,7 +351,7 @@ class FsSqlDriver {
     }
 
 
-    private static final String sqlStat = "SELECT isize,inlink,itype,imode,iuid,igid,iatime,ictime,imtime FROM t_inodes WHERE ipnfsid=?";
+    private static final String sqlStat = "SELECT isize,inlink,itype,imode,iuid,igid,iatime,ictime,imtime,icrtime FROM t_inodes WHERE ipnfsid=?";
 
     public Stat stat(Connection dbConnection, FsInode inode, int level) throws SQLException {
 
@@ -370,19 +370,22 @@ class FsSqlDriver {
             stStatInode.setString(1, inode.toString());
             statResult = stStatInode.executeQuery();
 
-            if (statResult.next()) {
+            if (statResult.next()) {                
+
+                ret = new org.dcache.chimera.posix.Stat();
                 int inodeType;
 
                 if (level == 0) {
                     inodeType = statResult.getInt("itype");
+                    ret.setCrTime(statResult.getTimestamp("icrtime").getTime());
                 } else {
                     inodeType = UnixPermission.S_IFREG;
+                    ret.setCrTime(statResult.getTimestamp("imtime").getTime());
                 }
-
-                ret = new org.dcache.chimera.posix.Stat();
+                
                 ret.setSize(statResult.getLong("isize"));
                 ret.setATime(statResult.getTimestamp("iatime").getTime());
-                ret.setCTime(statResult.getTimestamp("ictime").getTime());
+                ret.setCTime(statResult.getTimestamp("ictime").getTime());                
                 ret.setMTime(statResult.getTimestamp("imtime").getTime());
                 ret.setUid(statResult.getInt("iuid"));
                 ret.setGid(statResult.getInt("igid"));
@@ -652,7 +655,7 @@ class FsSqlDriver {
     }
 
 
-    private static final String sqlCreateInode = "INSERT INTO t_inodes VALUES(?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String sqlCreateInode = "INSERT INTO t_inodes VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
 
     /**
      * creates an entry in t_inodes table with initial values.
@@ -690,6 +693,7 @@ class FsSqlDriver {
             stCreateInode.setTimestamp(9, now);
             stCreateInode.setTimestamp(10, now);
             stCreateInode.setTimestamp(11, now);
+            stCreateInode.setTimestamp(12, now);
 
             stCreateInode.executeUpdate();
 
