@@ -13,11 +13,15 @@
 
     <changeSet author="tigran" id="15">
         <sql stripComments="true">
-            <comment>
-                Set creation time to atime as it's with high
-                probability matches creation time
-            </comment>
-            update t_inodes set icrtime = iatime
+            UPDATE t_inodes SET icrtime = (
+                SELECT
+                    CASE
+                        WHEN ictime &lt;= imtime and ictime &lt;= iatime THEN ictime
+                        WHEN imtime &lt;= ictime and imtime &lt;= iatime THEN imtime
+                        ELSE iatime
+                    END AS icrtime
+                FROM t_inodes AS p WHERE p.ipnfsid = t_inodes.ipnfsid
+            )
         </sql>
     </changeSet>
 
