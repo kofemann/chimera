@@ -17,7 +17,7 @@
 package org.dcache.chimera;
 
 import java.io.IOException;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 
 public class DirectoryStreamHelper {
@@ -31,7 +31,7 @@ public class DirectoryStreamHelper {
      */
     public static List<HimeraDirectoryEntry> listOf(FsInode inode) throws IOException, IOHimeraFsException {
 
-        List<HimeraDirectoryEntry> directoryList = new LinkedList<HimeraDirectoryEntry>();
+        List<HimeraDirectoryEntry> directoryList = new ArrayList<HimeraDirectoryEntry>(inode.statCache().getNlink());
         DirectoryStreamB<HimeraDirectoryEntry> dirStream = inode.newDirectoryStream();
         try {
             for (HimeraDirectoryEntry e : dirStream) {
