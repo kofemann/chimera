@@ -70,11 +70,11 @@ public interface FileSystemProvider extends Closeable {
 
     public abstract DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir) throws IOHimeraFsException;
 
-    public abstract boolean remove(String path) throws ChimeraFsException;
+    public abstract void remove(String path) throws ChimeraFsException;
 
-    public abstract boolean remove(FsInode parent, String name) throws ChimeraFsException;
+    public abstract void remove(FsInode parent, String name) throws ChimeraFsException;
 
-    public abstract boolean remove(FsInode inode) throws ChimeraFsException;
+    public abstract void remove(FsInode inode) throws ChimeraFsException;
 
     public abstract org.dcache.chimera.posix.Stat stat(String path) throws ChimeraFsException;
 

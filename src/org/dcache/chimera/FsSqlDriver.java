@@ -255,26 +255,22 @@ class FsSqlDriver {
     }
 
 
-    boolean remove(Connection dbConnection, FsInode parent, String name) throws ChimeraFsException, SQLException {
+    void remove(Connection dbConnection, FsInode parent, String name) throws ChimeraFsException, SQLException {
 
         FsInode inode = inodeOf(dbConnection, parent, name);
 
-
         if (inode.isDirectory()) {
-
-            return removeDir(dbConnection, parent, inode, name);
-
+            removeDir(dbConnection, parent, inode, name);
+        } else {
+            removeFile(dbConnection, parent, inode, name);
         }
-
-        return removeFile(dbConnection, parent, inode, name);
-
     }
 
-    private boolean removeDir(Connection dbConnection, FsInode parent, FsInode inode, String name) throws ChimeraFsException, SQLException {
+    private void removeDir(Connection dbConnection, FsInode parent, FsInode inode, String name) throws ChimeraFsException, SQLException {
 
         Stat dirStat = inode.statCache();
         if (dirStat.getNlink() > 2) {
-            throw new ChimeraFsException("directory is not empty");
+            throw new DirNotEmptyHimeraFsException("directory is not empty");
         }
 
         removeEntryInParent(dbConnection, inode, ".");
@@ -288,12 +284,12 @@ class FsSqlDriver {
         decNlink(dbConnection, parent);
         setFileMTime(dbConnection, parent, 0, System.currentTimeMillis());
 
-        return removeInode(dbConnection, inode);
+        removeInode(dbConnection, inode);
 
     }
 
 
-    private boolean removeFile(Connection dbConnection, FsInode parent, FsInode inode, String name) throws ChimeraFsException, SQLException {
+    private void removeFile(Connection dbConnection, FsInode parent, FsInode inode, String name) throws ChimeraFsException, SQLException {
 
         boolean isLast = inode.stat().getNlink() == 1;
 
@@ -303,21 +299,18 @@ class FsSqlDriver {
         setFileMTime(dbConnection, parent, 0, System.currentTimeMillis());
 
         if (isLast) {
-            return removeInode(dbConnection, inode);
+            removeInode(dbConnection, inode);
         }
-
-        return true;
-
     }
 
 
-    boolean remove(Connection dbConnection, FsInode parent, FsInode inode) throws ChimeraFsException, SQLException {
+    void remove(Connection dbConnection, FsInode parent, FsInode inode) throws ChimeraFsException, SQLException {
 
         if (inode.isDirectory()) {
 
             Stat dirStat = inode.statCache();
             if (dirStat.getNlink() > 2) {
-                throw new ChimeraFsException("directory is not empty");
+                throw new DirNotEmptyHimeraFsException("directory is not empty");
             }
             removeEntryInParent(dbConnection, inode, ".");
             removeEntryInParent(dbConnection, inode, "..");
@@ -336,7 +329,7 @@ class FsSqlDriver {
         setFileMTime(dbConnection, parent, 0, System.currentTimeMillis());
         removeStorageInfo(dbConnection, inode);
 
-        return removeInode(dbConnection, inode);
+        removeInode(dbConnection, inode);
     }
 
     public Stat stat(Connection dbConnection, FsInode inode) throws SQLException {

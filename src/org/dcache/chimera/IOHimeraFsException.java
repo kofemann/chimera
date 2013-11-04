@@ -16,7 +16,7 @@
  */
 package org.dcache.chimera;
 
-public class IOHimeraFsException extends org.dcache.chimera.ChimeraFsException {
+public class IOHimeraFsException extends ChimeraFsException {
 
     /**
      *
@@ -34,5 +34,8 @@ public class IOHimeraFsException extends org.dcache.chimera.ChimeraFsException {
         super(msg);
     }
 
-
+    public IOHimeraFsException(String message, Throwable cause)
+    {
+        super(message, cause);
+    }
 }

@@ -109,14 +109,13 @@ public class BasicTest extends ChimeraTestCaseHelper {
         }
     }
 
-    @Test
+    @Test(expected = DirNotEmptyHimeraFsException.class)
     public void testDeleteNonEmptyDir() throws Exception {
 
         FsInode base = _rootInode.mkdir("junit");
 
         base.create("testCreateFile", 0, 0, 0644);
-        assertFalse("you can't delete non empty directory", _rootInode.remove("junit") );
-
+        _rootInode.remove("junit");
     }
 
 
@@ -150,10 +149,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
     }
 
-    @Test
+    @Test(expected = FileNotFoundHimeraFsException.class)
     public void testDeleteNonExistingFile() throws Exception {
-
-        assertFalse("you can't delete non existing file", _rootInode.remove("testCreateFile") );
+       _rootInode.remove("testCreateFile");
     }
 
     @Test
@@ -277,12 +275,10 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         assertEquals("hard link's  have to increase link count by one", stat.getNlink() + 1, hardLinkInode.stat().getNlink());
 
-        boolean removed = _fs.remove(base, "hardLinkTestDestinationFile");
-        assertTrue("failed to remove hard link", removed );
+        _fs.remove(base, "hardLinkTestDestinationFile");
         assertTrue("removeing of hard link have to decrease link count by one", 1 == fileInode.stat().getNlink());
 
     }
-
 
     @Test
     public void testRemoveLinkToDir() throws Exception {
@@ -290,12 +286,8 @@ public class BasicTest extends ChimeraTestCaseHelper {
         FsInode base = _rootInode.mkdir("junit");
 
         _fs.createLink(base, "aLink", "/junit");
-
-        boolean removed = _fs.remove(base, "aLink");
-        assertTrue("failed to remove symbolic link", removed );
-
+        _fs.remove(base, "aLink");
     }
-
 
     @Ignore
     @Test
@@ -447,17 +439,16 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
     }
 
-    @Test
+    @Test(expected = FileNotFoundHimeraFsException.class)
     public void testRemoveNonexistgById() throws Exception  {
-
         FsInode inode = new FsInode(_fs, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
-        assertFalse("was able to remove non existing entry",   _fs.remove(inode) );
+        _fs.remove(inode);
     }
 
-    @Test
+    @Test(expected = FileNotFoundHimeraFsException.class)
     public void testRemoveNonexistgByPath() throws Exception  {
     	FsInode base = _rootInode.mkdir("junit");
-        assertFalse("was able to remove non existing entry",   _fs.remove(base, "notexist") );
+        _fs.remove(base, "notexist");
     }
 
     @Test
