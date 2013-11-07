@@ -56,7 +56,7 @@ public class JdbcFs implements FileSystemProvider {
     /**
      * maximal length of an object name in a directory.
      */
-    private final static int MAX_NAME_LEN = 256;
+    private final static int MAX_NAME_LEN = 255;
 
     /**
      * the number of pnfs levels. Level zero associated with file real
