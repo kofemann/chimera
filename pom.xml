@@ -123,11 +123,11 @@
     <distributionManagement>
         <repository>
             <id>dcache.org</id>
-            <url>http://www.dcache.org/nexus/content/repositories/releases</url>
+            <url>https://download.dcache.org/nexus/content/repositories/releases</url>
         </repository>
         <snapshotRepository>
             <id>dcache.org</id>
-            <url>http://www.dcache.org/nexus/content/repositories/snapshots</url>
+            <url>https://download.dcache.org/nexus/content/repositories/snapshots</url>
         </snapshotRepository>
     </distributionManagement>
     <repositories>
