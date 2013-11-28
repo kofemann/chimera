@@ -1,5 +1,6 @@
 package org.dcache.chimera;
 
+import com.google.common.base.Charsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -289,6 +290,28 @@ public class BasicTest extends ChimeraTestCaseHelper {
         _fs.remove(base, "aLink");
     }
 
+    @Test
+    public void testRemoveLinkToSomewhare() throws Exception {
+
+        FsInode linkBase = _rootInode.mkdir("links");
+
+        _fs.createLink(linkBase, "file123", 0, 0, 0644, "/files/file123".getBytes(Charsets.UTF_8));
+        _fs.remove("/links/file123");
+    }
+
+    @Test
+    public void testRemoveLinkToFile() throws Exception {
+
+        FsInode fileBase = _rootInode.mkdir("files");
+        FsInode linkBase = _rootInode.mkdir("links");
+        FsInode fileInode = fileBase.create("file123", 0, 0, 0644);
+
+        _fs.createLink(linkBase, "file123",  0, 0, 0644, "/files/file123".getBytes(Charsets.UTF_8));
+        _fs.remove("/links/file123");
+
+        assertTrue("original file is gone!", fileInode.exists());
+    }
+
     @Ignore
     @Test
     public void testDirHardLink() throws Exception {
@@ -314,7 +337,6 @@ public class BasicTest extends ChimeraTestCaseHelper {
             // OK
         }
     }
-
 
     @Test
     public void testRenameNonExistSameDir() throws Exception {
