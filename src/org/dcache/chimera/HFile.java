@@ -23,12 +23,10 @@ import java.util.List;
 public class HFile extends File {
 
     private static final long serialVersionUID = 6304886860060999115L;
-
-    private FsInode _inode = null;
-    private FsInode _parent = null;
+    private FsInode _inode;
+    private FsInode _parent;
     private final FileSystemProvider _fs;
-
-    private boolean _isNew = false;
+    private boolean _isNew;
 
     public HFile(FileSystemProvider fs, String path) {
         super(path);
@@ -95,7 +93,9 @@ public class HFile extends File {
     public long length() {
         long size = 0L;
         try {
-            if (_inode != null) size = _inode.statCache().getSize();
+            if (_inode != null) {
+                size = _inode.statCache().getSize();
+            }
         } catch (ChimeraFsException e) {
             /*
              * according java.io.File javadoc we have to eat all exceptions
@@ -110,7 +110,9 @@ public class HFile extends File {
     public long lastModified() {
         long mtime = 0l;
         try {
-            if (_inode != null) mtime = _inode.statCache().getMTime();
+            if (_inode != null) {
+                mtime = _inode.statCache().getMTime();
+            }
         } catch (ChimeraFsException e) {
             /*
              * according java.io.File javadoc we have to eat all exceptions
@@ -139,7 +141,6 @@ public class HFile extends File {
         return rc;
     }
 
-
     @Override
     public boolean mkdir() {
         boolean rc = false;
@@ -160,8 +161,23 @@ public class HFile extends File {
         return rc;
     }
 
-    // Chinera specific
+    @Override
+    public boolean delete() {
+        boolean rc = false;
+        if (exists()) {
+            try {
+                _fs.remove(_inode);
+            } catch (ChimeraFsException hfe) {
+                /*
+                 * according java.io.File javadoc we have to eat all exceptions
+                 * and return false
+                 */
+            }
+        }
+        return rc;
+    }
 
+    // Chinera specific
     public FsInode getInode() {
         return _inode;
     }
@@ -189,8 +205,12 @@ public class HFile extends File {
     @Override
     public boolean equals(Object obj) {
 
-        if (obj == this) return true;
-        if (!(obj instanceof HFile)) return false;
+        if (obj == this) {
+            return true;
+        }
+        if (!(obj instanceof HFile)) {
+            return false;
+        }
 
         HFile o = (HFile) obj;
 
@@ -207,5 +227,4 @@ public class HFile extends File {
     public int hashCode() {
         return 17;
     }
-
 }

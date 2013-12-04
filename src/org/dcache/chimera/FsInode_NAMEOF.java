@@ -16,19 +16,17 @@
  */
 package org.dcache.chimera;
 
-import org.dcache.chimera.posix.Stat;
-
 import java.io.File;
+
+import org.dcache.chimera.posix.Stat;
 
 public class FsInode_NAMEOF extends FsInode {
 
-
-    String _name = null;
+    String _name;
 
     public FsInode_NAMEOF(FileSystemProvider fs, String id) {
         super(fs, id, FsInodeType.NAMEOF);
     }
-
 
     @Override
     public int read(long pos, byte[] data, int offset, int len) {
@@ -48,7 +46,9 @@ public class FsInode_NAMEOF extends FsInode {
         /*
          * are we still inside ?
          */
-        if (pos > b.length) return 0;
+        if (pos > b.length) {
+            return 0;
+        }
 
         int copyLen = Math.min(len, b.length - (int) pos);
         System.arraycopy(b, (int) pos, data, 0, copyLen);

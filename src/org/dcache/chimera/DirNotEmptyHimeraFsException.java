@@ -32,7 +32,6 @@ public class DirNotEmptyHimeraFsException extends ChimeraFsException {
 
     /**
      * Constructs an instance of <code>DirNotEmptyHimeraFsException</code> with the specified detail message.
-     *
      * @param msg the detail message.
      */
     public DirNotEmptyHimeraFsException(String msg) {

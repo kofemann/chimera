@@ -18,14 +18,11 @@ package org.dcache.chimera;
 
 import java.util.StringTokenizer;
 
-
 public class PnfsCommandProcessor {
 
     public static String[] process(String command) {
 
-
         StringTokenizer st = new StringTokenizer(command.substring(1), "[()]");
-
 
         int len = st.countTokens();
 
@@ -36,5 +33,4 @@ public class PnfsCommandProcessor {
 
         return list;
     }
-
 }

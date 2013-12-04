@@ -22,6 +22,10 @@ import java.sql.SQLException;
 
 import org.dcache.chimera.util.SqlHelper;
 
+
+/**
+ * H2 database specific dialect.
+ */
 public class H2FsSqlDriver extends FsSqlDriver {
 
 
@@ -31,7 +35,7 @@ public class H2FsSqlDriver extends FsSqlDriver {
      * @param dbConnection
      * @param orign
      * @param destination
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     @Override
     void copyTags(Connection dbConnection, FsInode orign, FsInode destination) throws SQLException {

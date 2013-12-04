@@ -23,21 +23,18 @@ import java.util.UUID;
  */
 public class InodeId {
 
-
     /**
      * no instance allowed
      */
     private InodeId() { /**/ }
 
     /**
-     * generates new inode id
-     * format 0-3  - fsid
-     * 4-35 - inode id
-     *
+     *  generates new inode id
+     *  format 0-3  - fsid
+     *         4-35 - inode id
      * @param fsId
      * @return
      */
-
     public static String newID(int fsId) {
 
         UUID newId = UUID.randomUUID();
@@ -54,13 +51,40 @@ public class InodeId {
         return idString.toString().toUpperCase();
     }
 
-
-    /**
-     * Returns val represented by the specified number of hex digits.
-     */
+    /** Returns val represented by the specified number of hex digits. */
     private static String digits(long val, int digits) {
         long hi = 1L << (digits * 4);
         return Long.toHexString(hi | (val & (hi - 1))).substring(1);
     }
 
+    public static byte[] hexStringToByteArray(String id) {
+
+        if (id.length() % 2 != 0) {
+            throw new IllegalArgumentException("The string needs to be even-length: " + id);
+        }
+
+        int len = id.length() / 2;
+        byte[] bytes = new byte[len];
+
+        for (int i = 0; i < len; i++) {
+            final int charIndex = i * 2;
+            final int d0 = toDigit(id.charAt(charIndex));
+            final int d1 = toDigit(id.charAt(charIndex + 1));
+            bytes[i] = (byte) ((d0 << 4) + d1);
+        }
+        return bytes;
+    }
+
+    private static int toDigit(char ch) throws NumberFormatException {
+        if (ch >= '0' && ch <= '9') {
+            return ch - '0';
+        }
+        if (ch >= 'A' && ch <= 'F') {
+            return ch - 'A' + 10;
+        }
+        if (ch >= 'a' && ch <= 'f') {
+            return ch - 'a' + 10;
+        }
+        throw new NumberFormatException("illegal character '" + ch + "'");
+    }
 }

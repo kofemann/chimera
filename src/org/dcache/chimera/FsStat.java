@@ -18,6 +18,7 @@ package org.dcache.chimera;
 
 /**
  * File system stat information.
+ *
  */
 
 /* Immutable */
@@ -44,16 +45,18 @@ public class FsStat {
     }
 
     /**
+     *
      * @return total number of files. If a file has multiple replicas only one
-     *         replica is counted.
+     * replica is counted.
      */
     public long getUsedFiles() {
         return _usedFiles;
     }
 
     /**
+     *
      * @return total number of bytes off all files. If a file has a multiple
-     *         replicas only one replica is counted.
+     * replicas only one replica is counted.
      */
     public long getUsedSpace() {
         return _usedSpace;

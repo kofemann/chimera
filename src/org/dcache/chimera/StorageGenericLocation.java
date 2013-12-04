@@ -18,7 +18,7 @@ package org.dcache.chimera;
 
 /**
  * LOCATION INFO
- * <p/>
+ *
  * Generic storage information
  * ipnfsid   : pnfsid of the inode
  * itype     : type of storage, e.g. tape, disk
@@ -27,62 +27,56 @@ package org.dcache.chimera;
  * ictime    : location creation time
  * iatime    : last access time, probably performance killer, but nice to have for statistics
  * istate    : location status ONLINE/OFF-LINE
- * <p/>
- * <p/>
+ *
+ *
  * CREATE TABLE t_locationinfo {
- * ipnfsid CHAR(36),
- * itype INT NOT NULL,
- * ilocation VARCHAR(1024) NOT NULL,
- * ipriority INT NOT NULL,
- * ictime timestamp NOT NULL,
- * iatime timestamp NOT NULL,
- * istate INT NOT NULL,
- * FOREIGN KEY (ipnfsid) REFERENCES t_inodes( ipnfsid ),
- * PRIMARY KEY (iparent,itype,ilocation)
+ *	ipnfsid CHAR(36),
+ *	itype INT NOT NULL,
+ *	ilocation VARCHAR(1024) NOT NULL,
+ *	ipriority INT NOT NULL,
+ *	ictime timestamp NOT NULL,
+ *	iatime timestamp NOT NULL,
+ *	istate INT NOT NULL,
+ *	FOREIGN KEY (ipnfsid) REFERENCES t_inodes( ipnfsid ),
+ *	PRIMARY KEY (iparent,itype,ilocation)
  * };
+ *
  */
 /*
  * @Immutable
  */
 public class StorageGenericLocation implements StorageLocatable {
 
-
     // pre-defined types
     public static final int TAPE = 0;
     public static final int DISK = 1;
-
     /**
      * location creation time
      */
     private final long _ctime;
-
     /**
      * location last access time
      */
     private final long _atime;
-
     /**
      * location on-line off-line flag
      */
     private final boolean _isOnline;
-
     /**
      * the location itself
      */
     private final String _location;
-
     /**
      * location type, predefined types: TAPE, DISK
      */
     private final int _type;
-
     /**
      * locatin priority
      */
     private final int _priority;
 
-
     /**
+     *
      * @param type
      * @param priority
      * @param location
@@ -90,7 +84,6 @@ public class StorageGenericLocation implements StorageLocatable {
      * @param atime
      * @param isOnline
      */
-
     public StorageGenericLocation(int type, int priority, String location, long ctime, long atime, boolean isOnline) {
         _type = type;
         _priority = priority;
@@ -103,6 +96,7 @@ public class StorageGenericLocation implements StorageLocatable {
     /**
      * @return location last access time
      */
+    @Override
     public long accessTime() {
         return _atime;
     }
@@ -110,6 +104,7 @@ public class StorageGenericLocation implements StorageLocatable {
     /**
      * @return location creation time
      */
+    @Override
     public long creationTime() {
         return _ctime;
     }
@@ -117,6 +112,7 @@ public class StorageGenericLocation implements StorageLocatable {
     /**
      * @return true, if location is ready to be used
      */
+    @Override
     public boolean isOnline() {
         return _isOnline;
     }
@@ -124,6 +120,7 @@ public class StorageGenericLocation implements StorageLocatable {
     /**
      * @return the location
      */
+    @Override
     public String location() {
         return _location;
     }
@@ -131,6 +128,7 @@ public class StorageGenericLocation implements StorageLocatable {
     /**
      * @return location priority
      */
+    @Override
     public int priority() {
         return _priority;
     }
@@ -138,8 +136,8 @@ public class StorageGenericLocation implements StorageLocatable {
     /**
      * @return location type
      */
+    @Override
     public int type() {
         return _type;
     }
-
 }

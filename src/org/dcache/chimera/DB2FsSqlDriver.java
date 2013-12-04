@@ -22,28 +22,24 @@ import org.slf4j.LoggerFactory;
 import java.sql.Connection;
 import java.sql.SQLException;
 
-/**
- * Oracle specific SQL driver
- */
 
+/**
+ * DB2 specific SQL driver
+ */
 class DB2FsSqlDriver extends FsSqlDriver {
 
-    /**
-     * logger
-     */
     private static final Logger _log = LoggerFactory.getLogger(DB2FsSqlDriver.class);
 
     /**
-     * this is a utiliti class which is issues SQL queries on database
+     *  this is a utility class which issues SQL queries on database
+     *
      */
     protected DB2FsSqlDriver() {
         _log.info("Running DB2 specific Driver");
     }
 
-
     @Override
     void copyTags(Connection dbConnection, FsInode orign, FsInode destination) throws SQLException {
         // TODO: db2 needs some other solution
     }
-
 }

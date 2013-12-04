@@ -24,34 +24,30 @@ import org.dcache.chimera.util.SqlHelper;
 
 public class HsqlDBFsSqlDriver extends FsSqlDriver {
 
-
     /**
+     *
      * copy all directory tags from origin directory to destination. New copy marked as inherited.
      *
      * @param dbConnection
      * @param orign
      * @param destination
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     @Override
     void copyTags(Connection dbConnection, FsInode orign, FsInode destination) throws SQLException {
 
-
-        String sqlCopyTag = "INSERT INTO t_tags ( SELECT '" + destination.toString() + "' , itagname, itagid, 0 from t_tags WHERE ipnfsid=?)";
+        String sqlCopyTag = "INSERT INTO t_tags ( SELECT ? , itagname, itagid, 0 from t_tags WHERE ipnfsid=?)";
 
         PreparedStatement stCopyTags = null;
         try {
 
-
             stCopyTags = dbConnection.prepareStatement(sqlCopyTag);
-            stCopyTags.setString(1, orign.toString());
+            stCopyTags.setString(1, destination.toString());
+            stCopyTags.setString(2, orign.toString());
             stCopyTags.executeUpdate();
 
         } finally {
             SqlHelper.tryToClose(stCopyTags);
         }
-
     }
-
-
 }

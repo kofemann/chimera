@@ -16,8 +16,9 @@
  */
 package org.dcache.chimera;
 
+import com.google.common.collect.Lists;
+
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,12 +28,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+
 import org.dcache.acl.ACE;
 import org.dcache.acl.enums.AceType;
 import org.dcache.acl.enums.Who;
-
 import org.dcache.chimera.posix.Stat;
 import org.dcache.chimera.store.AccessLatency;
 import org.dcache.chimera.store.InodeStorageInformation;
@@ -41,45 +43,41 @@ import org.dcache.chimera.util.SqlHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * SQL driver
+ *
+ *
  */
-
 class FsSqlDriver {
-
 
     /**
      * logger
      */
     private static final Logger _log = LoggerFactory.getLogger(FsSqlDriver.class);
-
-
     /**
      * default file IO mode
      */
-
     private final static int IOMODE_ENABLE = 1;
     private final static int IOMODE_DISABLE = 0;
-
-    private final int _ioMode;    
+    private final int _ioMode;
 
     /**
-     * this is a utility class which is issues SQL queries on database
+     *  this is a utility class which is issues SQL queries on database
+     *
      */
     protected FsSqlDriver() {
 
-        if (Boolean.valueOf(System.getProperty("chimera.inodeIoMode")).booleanValue()) {
+        if (Boolean.valueOf(System.getProperty("chimera.inodeIoMode"))) {
             _ioMode = IOMODE_ENABLE;
         } else {
             _ioMode = IOMODE_DISABLE;
         }
 
     }
-
     private static final String sqlUsedSpace = "SELECT SUM(isize) AS usedSpace FROM t_inodes WHERE itype=32768";
 
     /**
+     *
      * @param dbConnection
      * @return total space used by files
      * @throws SQLException
@@ -104,11 +102,10 @@ class FsSqlDriver {
 
         return usedSpace;
     }
-
-
     private static final String sqlUsedFiles = "SELECT count(ipnfsid) AS usedFiles FROM t_inodes WHERE itype=32768";
 
     /**
+     *
      * @param dbConnection
      * @return total number of files
      * @throws SQLException
@@ -135,7 +132,8 @@ class FsSqlDriver {
     }
 
     /**
-     * creates a new inode and an entry name in parent directory.
+     *
+     *  creates a new inode and an entry name in parent directory.
      * Parent reference count and modification time is updated.
      *
      * @param dbConnection
@@ -145,13 +143,14 @@ class FsSqlDriver {
      * @param group
      * @param mode
      * @param type
-     * @return
      * @throws ChimeraFsException
-     * @throws java.sql.SQLException
+     * @throws SQLException
+     * @return
      */
-    FsInode createFile(Connection dbConnection, FsInode parent, String name, int owner, int group, int mode, int type) throws ChimeraFsException, SQLException {
+    FsInode createFile(Connection dbConnection, FsInode parent, String name, int owner, int group, int mode, int type) throws
+                                                                                                                       SQLException {
 
-        FsInode inode = null;
+        FsInode inode;
 
         inode = new FsInode(parent.getFs());
         createFileWithId(dbConnection, parent, inode, name, owner, group, mode, type);
@@ -159,9 +158,9 @@ class FsSqlDriver {
         return inode;
     }
 
-
     /**
-     * Creates a new entry with given inode is in parent directory.
+     *
+     *  Creates a new entry with given inode is in parent directory.
      * Parent reference count and modification time is updated.
      *
      * @param dbConnection
@@ -172,11 +171,11 @@ class FsSqlDriver {
      * @param group
      * @param mode
      * @param type
+     * @throws SQLException
      * @return
-     * @throws ChimeraFsException
-     * @throws java.sql.SQLException
      */
-    FsInode createFileWithId(Connection dbConnection, FsInode parent, FsInode inode, String name, int owner, int group, int mode, int type) throws ChimeraFsException, SQLException {
+    FsInode createFileWithId(Connection dbConnection, FsInode parent, FsInode inode, String name, int owner, int group, int mode, int type) throws
+                                                                                                                                            SQLException {
 
         createInode(dbConnection, inode, type, owner, group, mode, 1);
         createEntryInParent(dbConnection, parent, name, inode);
@@ -185,7 +184,6 @@ class FsSqlDriver {
 
         return inode;
     }
-
     private static final String sqlListDir = "SELECT * FROM t_dirs WHERE iparent=?";
 
     /**
@@ -194,8 +192,8 @@ class FsSqlDriver {
      *
      * @param dbConnection
      * @param dir
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     String[] listDir(Connection dbConnection, FsInode dir) throws SQLException {
 
@@ -211,7 +209,7 @@ class FsSqlDriver {
             result = stListDirectory.executeQuery();
 
 
-            List<String> directoryList = new ArrayList<String>();
+            List<String> directoryList = new ArrayList<>();
             while (result.next()) {
                 directoryList.add(result.getString("iname"));
             }
@@ -224,9 +222,9 @@ class FsSqlDriver {
 
         return list;
     }
-
-
-    private static final String sqlListDirFull = "SELECT " + "t_inodes.ipnfsid, t_dirs.iname, t_inodes.isize,t_inodes.inlink,t_inodes.imode,t_inodes.itype,t_inodes.iuid,t_inodes.igid,t_inodes.iatime,t_inodes.ictime,t_inodes.imtime  " + "FROM t_inodes, t_dirs WHERE iparent=? AND t_inodes.ipnfsid = t_dirs.ipnfsid";
+    private static final String sqlListDirFull = "SELECT "
+            + "t_inodes.ipnfsid, t_dirs.iname, t_inodes.isize,t_inodes.inlink,t_inodes.imode,t_inodes.itype,t_inodes.iuid,t_inodes.igid,t_inodes.iatime,t_inodes.ictime,t_inodes.imtime  "
+            + "FROM t_inodes, t_dirs WHERE iparent=? AND t_inodes.ipnfsid = t_dirs.ipnfsid";
 
     /**
      * the same as listDir, but array of {@HimeraDirectoryEntry} is returned, which contains
@@ -234,13 +232,13 @@ class FsSqlDriver {
      *
      * @param dbConnection
      * @param dir
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(Connection dbConnection, FsInode dir) throws SQLException {
 
-        ResultSet result = null;
-        PreparedStatement stListDirectoryFull = null;
+        ResultSet result;
+        PreparedStatement stListDirectoryFull;
 
         stListDirectoryFull = dbConnection.prepareStatement(sqlListDirFull);
         stListDirectoryFull.setFetchSize(50);
@@ -249,15 +247,17 @@ class FsSqlDriver {
         result = stListDirectoryFull.executeQuery();
         return new DirectoryStreamImpl(dir, dbConnection, stListDirectoryFull, result);
         /*
-        * DB resources freed by
-        * DirectoryStreamB.close()
-        */
+         * DB resources freed by
+         * DirectoryStreamB.close()
+         */
     }
-
 
     void remove(Connection dbConnection, FsInode parent, String name) throws ChimeraFsException, SQLException {
 
         FsInode inode = inodeOf(dbConnection, parent, name);
+        if (inode == null || inode.type() != FsInodeType.INODE) {
+            throw new FileNotFoundHimeraFsException("Not a file.");
+        }
 
         if (inode.isDirectory()) {
             removeDir(dbConnection, parent, inode, name);
@@ -285,9 +285,7 @@ class FsSqlDriver {
         setFileMTime(dbConnection, parent, 0, System.currentTimeMillis());
 
         removeInode(dbConnection, inode);
-
     }
-
 
     private void removeFile(Connection dbConnection, FsInode parent, FsInode inode, String name) throws ChimeraFsException, SQLException {
 
@@ -295,14 +293,19 @@ class FsSqlDriver {
 
         decNlink(dbConnection, inode);
         removeEntryInParent(dbConnection, parent, name);
-        decNlink(dbConnection, parent);
-        setFileMTime(dbConnection, parent, 0, System.currentTimeMillis());
 
         if (isLast) {
             removeInode(dbConnection, inode);
         }
-    }
 
+        /* During bulk deletion of files in the same directory,
+         * updating the parent inode is often a contention point. The
+         * link count on the parent is updated last to reduce the time
+         * in which the directory inode is locked by the database.
+         */
+        decNlink(dbConnection, parent);
+        setFileMTime(dbConnection, parent, 0, System.currentTimeMillis());
+    }
 
     void remove(Connection dbConnection, FsInode parent, FsInode inode) throws ChimeraFsException, SQLException {
 
@@ -321,6 +324,13 @@ class FsSqlDriver {
 
         } else {
             decNlink(dbConnection, inode);
+
+            /*
+             * TODO: put into trash
+             */
+            for (int i = 1; i <= 7; i++) {
+                removeInodeLevel(dbConnection, inode, i);
+            }
         }
 
         removeEntryInParentByID(dbConnection, parent, inode);
@@ -335,13 +345,11 @@ class FsSqlDriver {
     public Stat stat(Connection dbConnection, FsInode inode) throws SQLException {
         return stat(dbConnection, inode, 0);
     }
-
-
     private static final String sqlStat = "SELECT isize,inlink,itype,imode,iuid,igid,iatime,ictime,imtime,icrtime FROM t_inodes WHERE ipnfsid=?";
 
     public Stat stat(Connection dbConnection, FsInode inode, int level) throws SQLException {
 
-        org.dcache.chimera.posix.Stat ret = null;
+        Stat ret = null;
         PreparedStatement stStatInode = null;
         ResultSet statResult = null;
         try {
@@ -356,9 +364,8 @@ class FsSqlDriver {
             stStatInode.setString(1, inode.toString());
             statResult = stStatInode.executeQuery();
 
-            if (statResult.next()) {                
-
-                ret = new org.dcache.chimera.posix.Stat();
+            if (statResult.next()) {
+                ret = new Stat();
                 int inodeType;
 
                 if (level == 0) {
@@ -368,10 +375,10 @@ class FsSqlDriver {
                     inodeType = UnixPermission.S_IFREG;
                     ret.setCrTime(statResult.getTimestamp("imtime").getTime());
                 }
-                
+
                 ret.setSize(statResult.getLong("isize"));
                 ret.setATime(statResult.getTimestamp("iatime").getTime());
-                ret.setCTime(statResult.getTimestamp("ictime").getTime());                
+                ret.setCTime(statResult.getTimestamp("ictime").getTime());
                 ret.setMTime(statResult.getTimestamp("imtime").getTime());
                 ret.setUid(statResult.getInt("iuid"));
                 ret.setGid(statResult.getInt("igid"));
@@ -393,21 +400,22 @@ class FsSqlDriver {
      * create a new directory in parent with name. The reference count if parent directory
      * as well modification time and reference count of newly created directory are updated.
      *
+     *
      * @param dbConnection
      * @param parent
      * @param name
      * @param owner
      * @param group
      * @param mode
-     * @return
      * @throws ChimeraFsException
-     * @throws java.sql.SQLException
+     * @throws SQLException
+     * @return
      */
     FsInode mkdir(Connection dbConnection, FsInode parent, String name, int owner, int group, int mode) throws ChimeraFsException, SQLException {
 
         // if exist table parent_dir create an entry
 
-        FsInode inode = null;
+        FsInode inode;
 
         if (parent.isDirectory()) {
 
@@ -429,36 +437,6 @@ class FsSqlDriver {
 
         return inode;
     }
-
-    /**
-     * Make a directory only if it does not already exist within the given
-     * parent directory.
-     *
-     * @param dbConnection Connection to use.
-     * @param parent       Parent directory, of which the directory should become a
-     *                     subdirectory
-     * @param name         Name of the new directory
-     * @param owner        UID of the owner
-     * @param group        GID of the directory's group
-     * @param mode         access mode
-     * @return Inode of the existing directory, or of the new one, if it has
-     *         to be created
-     * @throws ChimeraFsException
-     * @throws SQLException
-     */
-    FsInode mkdirIfNotExists(Connection dbConnection, FsInode parent, String name, int owner, int group, int mode) throws ChimeraFsException, SQLException {
-        FsInode inode = null;
-
-        inode = inodeOf(dbConnection, parent, name);
-
-        if (inode == null) {
-            return mkdir(dbConnection, parent, name, owner, group, mode);
-        } else {
-            return inode;
-        }
-    }
-
-
     private static final String sqlMove = "UPDATE t_dirs SET iparent=?, iname=? WHERE iparent=? AND iname=?";
     private static final String sqlSetParent = "UPDATE t_dirs SET ipnfsid=? WHERE iparent=? AND iname='..'";
 
@@ -471,7 +449,7 @@ class FsSqlDriver {
      * @param source
      * @param destDir
      * @param dest
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     void move(Connection dbConnection, FsInode srcDir, String source, FsInode destDir, String dest) throws SQLException, ChimeraFsException {
 
@@ -479,7 +457,6 @@ class FsSqlDriver {
         PreparedStatement stParentMove = null;
 
         try {
-
 
             FsInode destInode = inodeOf(dbConnection, destDir, dest);
             FsInode srcInode = inodeOf(dbConnection, srcDir, source);
@@ -508,7 +485,7 @@ class FsSqlDriver {
              * if moving a directory, point '..' to the new parent
              */
             Stat stat = stat(dbConnection, srcInode);
-            if ((stat.getMode() & UnixPermission.S_IFDIR) != 0) {
+            if ( (stat.getMode() & UnixPermission.S_IFDIR) != 0) {
                 stParentMove = dbConnection.prepareStatement(sqlSetParent);
                 stParentMove.setString(1, destDir.toString());
                 stParentMove.setString(2, srcInode.toString());
@@ -523,8 +500,6 @@ class FsSqlDriver {
         }
 
     }
-
-
     private static final String sqlInodeOf = "SELECT ipnfsid FROM t_dirs WHERE iname=? AND iparent=?";
 
     /**
@@ -534,8 +509,8 @@ class FsSqlDriver {
      * @param dbConnection
      * @param parent
      * @param name
+     * @throws SQLException
      * @return null if path is not found
-     * @throws java.sql.SQLException
      */
     FsInode inodeOf(Connection dbConnection, FsInode parent, String name) throws SQLException {
 
@@ -566,19 +541,19 @@ class FsSqlDriver {
         }
         return inode;
     }
-
     private static final String sqlInode2Path_name = "SELECT iname FROM t_dirs WHERE ipnfsid=? AND iparent=? and iname !='.' and iname != '..'";
     private static final String sqlInode2Path_inode = "SELECT iparent FROM t_dirs WHERE ipnfsid=?  and iname != '.' and iname != '..'";
 
     /**
+     *
      * return the path associated with inode, starting from root of the tree.
      * in case of hard link, one of the possible paths is returned
      *
      * @param dbConnection
      * @param inode
-     * @param startFrom    defined the "root"
+     * @param startFrom defined the "root"
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     String inode2path(Connection dbConnection, FsInode inode, FsInode startFrom, boolean inclusive) throws SQLException {
 
@@ -587,7 +562,7 @@ class FsSqlDriver {
 
         try {
 
-            List<String> pList = new ArrayList<String>();
+            List<String> pList = new ArrayList<>();
             String parentId = getParentOf(dbConnection, inode).toString();
             String elementId = inode.toString();
 
@@ -639,11 +614,10 @@ class FsSqlDriver {
 
         return path;
     }
-
-
     private static final String sqlCreateInode = "INSERT INTO t_inodes VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
 
     /**
+     *
      * creates an entry in t_inodes table with initial values.
      * for optimization, initial value of reference count may be defined.
      * for newly created files , file size is zero. For directories 512.
@@ -654,7 +628,7 @@ class FsSqlDriver {
      * @param gid
      * @param mode
      * @param nlink
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     public void createInode(Connection dbConnection, FsInode inode, int type, int uid, int gid, int mode, int nlink) throws SQLException {
 
@@ -690,6 +664,7 @@ class FsSqlDriver {
     }
 
     /**
+     *
      * creates an entry in t_level_x table
      *
      * @param dbConnection
@@ -698,8 +673,8 @@ class FsSqlDriver {
      * @param gid
      * @param mode
      * @param level
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     FsInode createLevel(Connection dbConnection, FsInode inode, int uid, int gid, int mode, int level) throws SQLException {
 
@@ -725,8 +700,6 @@ class FsSqlDriver {
 
         return new FsInode(inode.getFs(), inode.toString(), level);
     }
-
-
     private static final String sqlRemoveInode = "DELETE FROM t_inodes WHERE ipnfsid=? AND inlink = 0";
 
     boolean removeInode(Connection dbConnection, FsInode inode) throws SQLException {
@@ -748,7 +721,8 @@ class FsSqlDriver {
         return rc > 0;
     }
 
-    boolean removeInodeLevel(Connection dbConnection, FsInode inode, int level) throws ChimeraFsException, SQLException {
+    boolean removeInodeLevel(Connection dbConnection, FsInode inode, int level) throws
+                                                                                SQLException {
 
         int rc = 0;
         PreparedStatement stRemoveInodeLevel = null;
@@ -763,7 +737,6 @@ class FsSqlDriver {
         }
 
         return rc > 0;
-
     }
 
     /**
@@ -772,15 +745,12 @@ class FsSqlDriver {
      *
      * @param dbConnection
      * @param inode
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     void incNlink(Connection dbConnection, FsInode inode) throws SQLException {
         incNlink(dbConnection, inode, 1);
     }
-
-
-    private static final String sqlIncNlink =
-            "UPDATE t_inodes SET inlink=inlink +?,imtime=?,ictime=? WHERE ipnfsid=?";
+    private static final String sqlIncNlink = "UPDATE t_inodes SET inlink=inlink +?,imtime=?,ictime=? WHERE ipnfsid=?";
 
     /**
      * increases the reference count of the inode by delta
@@ -788,7 +758,7 @@ class FsSqlDriver {
      * @param dbConnection
      * @param inode
      * @param delta
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     void incNlink(Connection dbConnection, FsInode inode, int delta) throws SQLException {
 
@@ -811,20 +781,17 @@ class FsSqlDriver {
     }
 
     /**
-     * decreases inode reverence count by 1.
-     * the same as decNlink(dbConnection, inode, 1)
+     *  decreases inode reverence count by 1.
+     *  the same as decNlink(dbConnection, inode, 1)
      *
      * @param dbConnection
      * @param inode
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     void decNlink(Connection dbConnection, FsInode inode) throws SQLException {
         decNlink(dbConnection, inode, 1);
     }
-
-
-    private static final String sqlDecNlink =
-            "UPDATE t_inodes SET inlink=inlink -?,imtime=?,ictime=? WHERE ipnfsid=?";
+    private static final String sqlDecNlink = "UPDATE t_inodes SET inlink=inlink -?,imtime=?,ictime=? WHERE ipnfsid=?";
 
     /**
      * decreases inode reference count by delta
@@ -832,7 +799,7 @@ class FsSqlDriver {
      * @param dbConnection
      * @param inode
      * @param delta
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     void decNlink(Connection dbConnection, FsInode inode, int delta) throws SQLException {
 
@@ -853,11 +820,10 @@ class FsSqlDriver {
         }
 
     }
-
-
     private static final String sqlCreateEntryInParent = "INSERT INTO t_dirs VALUES(?,?,?)";
 
     /**
+     *
      * creates an entry name for the inode in the directory parent.
      * parent's reference count is not increased
      *
@@ -865,9 +831,9 @@ class FsSqlDriver {
      * @param parent
      * @param name
      * @param inode
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
-    void createEntryInParent(Connection dbConnection, FsInode parent, String name, FsInode inode) throws SQLException, InvalidNameChimeraException {
+    void createEntryInParent(Connection dbConnection, FsInode parent, String name, FsInode inode) throws SQLException {
 
         PreparedStatement stInserIntoParent = null;
         try {
@@ -883,7 +849,6 @@ class FsSqlDriver {
         }
 
     }
-
     private static final String sqlRemoveEntryInParentByID = "DELETE FROM t_dirs WHERE ipnfsid=? AND iparent=?";
 
     void removeEntryInParentByID(Connection dbConnection, FsInode parent, FsInode inode) throws SQLException {
@@ -902,7 +867,6 @@ class FsSqlDriver {
         }
 
     }
-
     private static final String sqlRemoveEntryInParentByName = "DELETE FROM t_dirs WHERE iname=? AND iparent=?";
 
     void removeEntryInParent(Connection dbConnection, FsInode parent, String name) throws SQLException {
@@ -920,17 +884,16 @@ class FsSqlDriver {
         }
 
     }
-
-
     private static final String sqlGetParentOf = "SELECT iparent FROM t_dirs WHERE ipnfsid=? AND iname != '.' and iname != '..'";
 
     /**
+     *
      * return a parent of inode. In case of hard links, one of the parents is returned
      *
      * @param dbConnection
      * @param inode
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     FsInode getParentOf(Connection dbConnection, FsInode inode) throws SQLException {
 
@@ -955,17 +918,16 @@ class FsSqlDriver {
 
         return parent;
     }
-
-
     private static final String sqlGetParentOfDirectory = "SELECT iparent FROM t_dirs WHERE ipnfsid=? AND iname!='..' AND iname !='.'";
 
     /**
+     *
      * return a parent of inode. In case of hard links, one of the parents is returned
      *
      * @param dbConnection
      * @param inode
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     FsInode getParentOfDirectory(Connection dbConnection, FsInode inode) throws SQLException {
 
@@ -990,17 +952,17 @@ class FsSqlDriver {
 
         return parent;
     }
-
     private static final String sqlGetNameOf = "SELECT iname FROM t_dirs WHERE ipnfsid=? AND iparent=?";
 
     /**
+     *
      * return the the name of the inode in parent
      *
      * @param dbConnection
      * @param parent
      * @param inode
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     String getNameOf(Connection dbConnection, FsInode parent, FsInode inode) throws SQLException {
 
@@ -1026,7 +988,6 @@ class FsSqlDriver {
 
         return name;
     }
-
     private static final String sqlSetFileSize = "UPDATE t_inodes SET isize=?,imtime=?,ictime=? WHERE ipnfsid=?";
 
     void setFileSize(Connection dbConnection, FsInode inode, long newSize) throws SQLException {
@@ -1047,8 +1008,6 @@ class FsSqlDriver {
             SqlHelper.tryToClose(ps);
         }
     }
-
-
     private static final String sqlSetFileOwner = "UPDATE t_inodes SET iuid=?,ictime=? WHERE ipnfsid=?";
 
     void setFileOwner(Connection dbConnection, FsInode inode, int level, int newOwner) throws SQLException {
@@ -1057,7 +1016,7 @@ class FsSqlDriver {
 
         try {
 
-            String fileSetModeQuery = null;
+            String fileSetModeQuery;
 
             if (level == 0) {
                 fileSetModeQuery = sqlSetFileOwner;
@@ -1076,8 +1035,6 @@ class FsSqlDriver {
         }
 
     }
-
-
     private static final String sqlSetFileName = "UPDATE t_dirs SET iname=? WHERE iname=? AND iparent=?";
 
     void setFileName(Connection dbConnection, FsInode dir, String oldName, String newName) throws SQLException, ChimeraFsException {
@@ -1114,7 +1071,6 @@ class FsSqlDriver {
             SqlHelper.tryToClose(ps);
         }
     }
-
     private static final String sqlSetInodeAttributes = "UPDATE t_inodes SET iatime=?, imtime=?, ictime=?, isize=?, iuid=?, igid=?, imode=?, itype=? WHERE ipnfsid=?";
 
     void setInodeAttributes(Connection dbConnection, FsInode inode, int level, Stat stat) throws SQLException {
@@ -1142,7 +1098,8 @@ class FsSqlDriver {
                 ps.setInt(8, stat.getMode() & UnixPermission.S_TYPE);
                 ps.setString(9, inode.toString());
             } else {
-                String fileSetModeQuery = "UPDATE t_level_" + level + " SET iatime=?, imtime=?, iuid=?, igid=?, imode=? WHERE ipnfsid=?";
+                String fileSetModeQuery = "UPDATE t_level_" + level
+                        + " SET iatime=?, imtime=?, iuid=?, igid=?, imode=? WHERE ipnfsid=?";
                 ps = dbConnection.prepareStatement(fileSetModeQuery);
 
                 ps.setTimestamp(1, new Timestamp(stat.getATime()));
@@ -1155,12 +1112,10 @@ class FsSqlDriver {
 
             ps.executeUpdate();
 
-
         } finally {
             SqlHelper.tryToClose(ps);
         }
     }
-
     private static final String sqlSetFileATime = "UPDATE t_inodes SET iatime=? WHERE ipnfsid=?";
 
     void setFileATime(Connection dbConnection, FsInode inode, int level, long atime) throws SQLException {
@@ -1184,7 +1139,6 @@ class FsSqlDriver {
             SqlHelper.tryToClose(ps);
         }
     }
-
     private static final String sqlSetFileCTime = "UPDATE t_inodes SET ictime=? WHERE ipnfsid=?";
 
     void setFileCTime(Connection dbConnection, FsInode inode, int level, long ctime) throws SQLException {
@@ -1192,7 +1146,6 @@ class FsSqlDriver {
         PreparedStatement ps = null;
 
         try {
-
 
             if (level == 0) {
                 ps = dbConnection.prepareStatement(sqlSetFileCTime);
@@ -1210,7 +1163,6 @@ class FsSqlDriver {
         }
 
     }
-
     private static final String sqlSetFileMTime = "UPDATE t_inodes SET imtime=? WHERE ipnfsid=?";
 
     void setFileMTime(Connection dbConnection, FsInode inode, int level, long mtime) throws SQLException {
@@ -1234,7 +1186,6 @@ class FsSqlDriver {
         }
 
     }
-
     private static final String sqlSetFileGroup = "UPDATE t_inodes SET igid=?,ictime=? WHERE ipnfsid=?";
 
     void setFileGroup(Connection dbConnection, FsInode inode, int level, int newGroup) throws SQLException {
@@ -1253,13 +1204,11 @@ class FsSqlDriver {
             ps.setString(3, inode.toString());
             ps.executeUpdate();
 
-
         } finally {
             SqlHelper.tryToClose(ps);
         }
 
     }
-
     private static final String sqlSetFileMode = "UPDATE t_inodes SET imode=?,ictime=? WHERE ipnfsid=?";
 
     void setFileMode(Connection dbConnection, FsInode inode, int level, int newMode) throws SQLException {
@@ -1278,12 +1227,10 @@ class FsSqlDriver {
             ps.setString(3, inode.toString());
             ps.executeUpdate();
 
-
         } finally {
             SqlHelper.tryToClose(ps);
         }
     }
-
     private static final String sqlIsIoEnabled = "SELECT iio FROM t_inodes WHERE ipnfsid=?";
 
     /**
@@ -1291,8 +1238,8 @@ class FsSqlDriver {
      *
      * @param dbConnection
      * @param inode
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     boolean isIoEnabled(Connection dbConnection, FsInode inode) throws SQLException {
 
@@ -1306,7 +1253,7 @@ class FsSqlDriver {
 
             rs = stIsIoEnabled.executeQuery();
             if (rs.next()) {
-                ioEnabled = rs.getInt("iio") == 1;
+                ioEnabled = rs.getInt("iio") == 1 ? true : false;
             }
 
         } finally {
@@ -1316,7 +1263,6 @@ class FsSqlDriver {
         return ioEnabled;
 
     }
-
     private static final String sqlSetInodeIo = "UPDATE t_inodes SET iio=? WHERE ipnfsid=?";
 
     void setInodeIo(Connection dbConnection, FsInode inode, boolean enable) throws SQLException {
@@ -1336,7 +1282,7 @@ class FsSqlDriver {
         }
     }
 
-    int write(Connection dbConnection, FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) throws SQLException, IOException {
+    int write(Connection dbConnection, FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) throws SQLException {
 
         PreparedStatement ps = null;
         ResultSet rs = null;
@@ -1355,41 +1301,15 @@ class FsSqlDriver {
 
                 if (exist) {
                     // entry exist, update only
-                    // read old data upto beginIndex
-                    ps = dbConnection.prepareStatement("SELECT ifiledata FROM t_inodes_data WHERE ipnfsid=?");
-                    ps.setString(1, inode.toString());
-                    rs = ps.executeQuery();
-                    if (rs.next()) {
-                        InputStream in = rs.getBinaryStream(1);
+                    String writeStream = "UPDATE t_inodes_data SET ifiledata=? WHERE ipnfsid=?";
 
-                        String writeStream = "UPDATE t_inodes_data SET ifiledata=? WHERE ipnfsid=?";
+                    ps = dbConnection.prepareStatement(writeStream);
 
-                        ps = dbConnection.prepareStatement(writeStream);
+                    ps.setBinaryStream(1, new ByteArrayInputStream(data, offset, len), len);
+                    ps.setString(2, inode.toString());
 
-                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                        int next = in.read();
-                        long curr = 0;
-                        while (next > -1 && curr != beginIndex) {
-                            bos.write(next);
-                            next = in.read();
-                            curr++;
-                        }
-                        bos.flush();
-                        byte[] currentBytes = bos.toByteArray();
-
-
-                        byte newBytes[] = new byte[currentBytes.length + data.length];
-                        System.arraycopy(currentBytes, 0, newBytes, 0, currentBytes.length);
-                        System.arraycopy(data, 0, newBytes, currentBytes.length, data.length);
-
-                        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(newBytes);
-
-                        ps.setBinaryStream(1, byteArrayInputStream, newBytes.length);
-                        ps.setString(2, inode.toString());
-
-                        ps.executeUpdate();
-                        SqlHelper.tryToClose(ps);
-                    }
+                    ps.executeUpdate();
+                    SqlHelper.tryToClose(ps);
 
                 } else {
                     // new entry
@@ -1402,7 +1322,6 @@ class FsSqlDriver {
 
                     ps.executeUpdate();
                     SqlHelper.tryToClose(ps);
-
                 }
 
                 // correct file size
@@ -1410,7 +1329,7 @@ class FsSqlDriver {
 
                 ps = dbConnection.prepareStatement(writeStream);
 
-                ps.setLong(1, beginIndex+len);
+                ps.setLong(1, len);
                 ps.setString(2, inode.toString());
 
                 ps.executeUpdate();
@@ -1432,7 +1351,6 @@ class FsSqlDriver {
 
                 ps.executeUpdate();
             }
-
 
         } finally {
             SqlHelper.tryToClose(rs);
@@ -1472,6 +1390,7 @@ class FsSqlDriver {
                 //count = in.available() > len ? len : in.available() ;
                 //in.read(data, offset, count);
             }
+
         } catch (IOException e) {
             throw new IOHimeraFsException(e.toString());
         } finally {
@@ -1481,30 +1400,30 @@ class FsSqlDriver {
 
         return count;
     }
-
-
     /////////////////////////////////////////////////////////////////////
     ////
     ////   Location info
     ////
     ////////////////////////////////////////////////////////////////////
-
-    private static final String sqlGetInodeLocations = "SELECT ilocation,ipriority,ictime,iatime  " + "FROM t_locationinfo WHERE itype=? AND ipnfsid=? AND istate=1 ORDER BY ipriority DESC";
+    private static final String sqlGetInodeLocations =
+            "SELECT ilocation,ipriority,ictime,iatime  "
+            + "FROM t_locationinfo WHERE itype=? AND ipnfsid=? AND istate=1 ORDER BY ipriority DESC";
 
     /**
-     * returns a list of locations of defined type for the inode.
-     * only 'online' locations is returned
+     *
+     *  returns a list of locations of defined type for the inode.
+     *  only 'online' locations is returned
      *
      * @param dbConnection
      * @param inode
      * @param type
+     * @throws SQLException
      * @return
-     * @throws ChimeraFsException
-     * @throws java.sql.SQLException
      */
-    List<StorageLocatable> getInodeLocations(Connection dbConnection, FsInode inode, int type) throws ChimeraFsException, SQLException {
+    List<StorageLocatable> getInodeLocations(Connection dbConnection, FsInode inode, int type) throws
+                                                                                               SQLException {
 
-        List<StorageLocatable> locations = new ArrayList<StorageLocatable>();
+        List<StorageLocatable> locations = new ArrayList<>();
         ResultSet rs = null;
         PreparedStatement stGetInodeLocations = null;
         try {
@@ -1534,20 +1453,21 @@ class FsSqlDriver {
 
         return locations;
     }
-
     private static final String sqlAddInodeLocation = "INSERT INTO t_locationinfo VALUES(?,?,?,?,?,?,?)";
 
     /**
+     *
      * adds a new location for the inode
+     *
      *
      * @param dbConnection
      * @param inode
      * @param type
      * @param location
-     * @throws ChimeraFsException
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
-    void addInodeLocation(Connection dbConnection, FsInode inode, int type, String location) throws ChimeraFsException, SQLException {
+    void addInodeLocation(Connection dbConnection, FsInode inode, int type, String location) throws
+                                                                                             SQLException {
         PreparedStatement stAddInodeLocation = null; // add a new  location in the storage system for the inode
         try {
 
@@ -1568,21 +1488,20 @@ class FsSqlDriver {
             SqlHelper.tryToClose(stAddInodeLocation);
         }
     }
-
-
     private static final String sqlClearInodeLocation = "DELETE FROM t_locationinfo WHERE ipnfsid=? AND itype=? AND ilocation=?";
 
     /**
-     * remove the location for a inode
+     *
+     *  remove the location for a inode
      *
      * @param dbConnection
      * @param inode
      * @param type
      * @param location
-     * @throws ChimeraFsException
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
-    void clearInodeLocation(Connection dbConnection, FsInode inode, int type, String location) throws ChimeraFsException, SQLException {
+    void clearInodeLocation(Connection dbConnection, FsInode inode, int type, String location) throws
+                                                                                               SQLException {
         PreparedStatement stClearInodeLocation = null; // clear a location in the storage system for the inode
 
         try {
@@ -1597,19 +1516,18 @@ class FsSqlDriver {
             SqlHelper.tryToClose(stClearInodeLocation);
         }
     }
-
-
     private static final String sqlClearInodeLocations = "DELETE FROM t_locationinfo WHERE ipnfsid=?";
 
     /**
+     *
      * remove all locations for a inode
      *
      * @param dbConnection
      * @param inode
-     * @throws ChimeraFsException
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
-    void clearInodeLocations(Connection dbConnection, FsInode inode) throws ChimeraFsException, SQLException {
+    void clearInodeLocations(Connection dbConnection, FsInode inode) throws
+                                                                     SQLException {
         PreparedStatement stClearInodeLocations = null; // clear a location in the storage system for the inode
 
         try {
@@ -1622,15 +1540,11 @@ class FsSqlDriver {
             SqlHelper.tryToClose(stClearInodeLocations);
         }
     }
-
-
     /////////////////////////////////////////////////////////////////////
     ////
     ////   Directory tags handling
     ////
     ////////////////////////////////////////////////////////////////////
-
-
     private static final String sqlTags = "SELECT itagname FROM t_tags where ipnfsid=?";
 
     String[] tags(Connection dbConnection, FsInode inode) throws SQLException {
@@ -1644,7 +1558,7 @@ class FsSqlDriver {
             stGetTags.setString(1, inode.toString());
             rs = stGetTags.executeQuery();
 
-            List<String> v = new ArrayList<String>();
+            List<String> v = new ArrayList<>();
 
             while (rs.next()) {
                 v.add(rs.getString("itagname"));
@@ -1665,21 +1579,20 @@ class FsSqlDriver {
      * creates a new tag for the inode.
      * the inode becomes the tag origin.
      *
+     *
      * @param dbConnection
      * @param inode
      * @param name
      * @param uid
      * @param gid
      * @param mode
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     void createTag(Connection dbConnection, FsInode inode, String name, int uid, int gid, int mode) throws SQLException {
 
         String id = createTagInode(dbConnection, uid, gid, mode);
         assignTagToDir(dbConnection, id, name, inode, false, true);
     }
-
-
     private static final String sqlGetTagId = "SELECT itagid FROM t_tags WHERE ipnfsid=? AND itagname=?";
 
     /**
@@ -1688,8 +1601,8 @@ class FsSqlDriver {
      * @param dbConnection
      * @param dir
      * @param tag
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     String getTagId(Connection dbConnection, FsInode dir, String tag) throws SQLException {
         String tagId = null;
@@ -1713,19 +1626,18 @@ class FsSqlDriver {
         }
         return tagId;
     }
-
-
     private static final String sqlCreateTagInode = "INSERT INTO t_tags_inodes VALUES(?,?,1,?,?,0,?,?,?,NULL)";
 
     /**
-     * creates a new id for a tag and sores it into t_tags_inodes table.
+     *
+     *  creates a new id for a tag and sores it into t_tags_inodes table.
      *
      * @param dbConnection
      * @param uid
      * @param gid
      * @param mode
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     String createTagInode(Connection dbConnection, int uid, int gid, int mode) throws SQLException {
 
@@ -1752,12 +1664,11 @@ class FsSqlDriver {
         }
         return id;
     }
-
-
     private static final String sqlAssignTagToDir_update = "UPDATE t_tags SET itagid=?,isorign=? WHERE ipnfsid=? AND itagname=?";
     private static final String sqlAssignTagToDir_add = "INSERT INTO t_tags VALUES(?,?,?,1)";
 
     /**
+     *
      * creates a new or update existing tag for a directory
      *
      * @param dbConnection
@@ -1766,7 +1677,7 @@ class FsSqlDriver {
      * @param dir
      * @param isUpdate
      * @param isOrign
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     void assignTagToDir(Connection dbConnection, String tagId, String tagName, FsInode dir, boolean isUpdate, boolean isOrign) throws SQLException {
 
@@ -1795,7 +1706,6 @@ class FsSqlDriver {
             SqlHelper.tryToClose(ps);
         }
     }
-
     private static final String sqlSetTag = "UPDATE t_tags_inodes SET ivalue=?, isize=?, imtime=? WHERE itagid=?";
 
     int setTag(Connection dbConnection, FsInode inode, String tagName, byte[] data, int offset, int len) throws SQLException, ChimeraFsException {
@@ -1829,6 +1739,22 @@ class FsSqlDriver {
 
     }
 
+    private static final String sqlRemoveSingleTag = "DELETE FROM t_tags WHERE ipnfsid=? AND itagname=?";
+
+    void removeTag(Connection dbConnection, FsInode dir, String tag)
+            throws SQLException {
+        PreparedStatement ps = null;
+        try {
+            ps = dbConnection.prepareStatement(sqlRemoveSingleTag);
+            ps.setString(1, dir.toString());
+            ps.setString(2, tag);
+
+            ps.executeUpdate();
+        } finally {
+            SqlHelper.tryToClose(ps);
+        }
+    }
+
     private static final String sqlRemoveTag = "DELETE FROM t_tags WHERE ipnfsid=?";
 
     void removeTag(Connection dbConnection, FsInode dir) throws SQLException {
@@ -1845,8 +1771,6 @@ class FsSqlDriver {
             SqlHelper.tryToClose(ps);
         }
     }
-
-
     private static final String sqlGetTag = "SELECT ivalue,isize FROM t_tags_inodes WHERE itagid=?";
 
     /**
@@ -1858,9 +1782,9 @@ class FsSqlDriver {
      * @param data
      * @param offset
      * @param len
+     * @throws SQLException
+     * @throws IOException
      * @return
-     * @throws java.sql.SQLException
-     * @throws java.io.IOException
      */
     int getTag(Connection dbConnection, FsInode inode, String tagName, byte[] data, int offset, int len) throws SQLException, IOException {
 
@@ -1888,7 +1812,9 @@ class FsSqlDriver {
                 while (count < size) {
 
                     int c = in.read();
-                    if (c == -1) break;
+                    if (c == -1) {
+                        break;
+                    }
 
                     data[offset + count] = (byte) c;
                     ++count;
@@ -1903,13 +1829,12 @@ class FsSqlDriver {
 
         return count;
     }
-
     private static final String sqlStatTag = "SELECT isize,inlink,imode,iuid,igid,iatime,ictime,imtime FROM t_tags_inodes WHERE itagid=?";
 
     Stat statTag(Connection dbConnection, FsInode dir, String name) throws ChimeraFsException, SQLException {
 
 
-        org.dcache.chimera.posix.Stat ret = new org.dcache.chimera.posix.Stat();
+        Stat ret = new Stat();
         PreparedStatement stStatTag = null; // get tag attributes
         try {
 
@@ -1947,8 +1872,6 @@ class FsSqlDriver {
 
         return ret;
     }
-
-
     private static final String sqlIsTagOwner = "SELECT isorign FROM t_tags WHERE ipnfsid=? AND itagname=?";
 
     /**
@@ -1957,8 +1880,8 @@ class FsSqlDriver {
      * @param dbConnection
      * @param dir
      * @param tagName
+     * @throws SQLException
      * @return true, if inode is the origin of the tag
-     * @throws java.sql.SQLException
      */
     boolean isTagOwner(Connection dbConnection, FsInode dir, String tagName) throws SQLException {
 
@@ -1987,17 +1910,16 @@ class FsSqlDriver {
 
         return isOwner;
     }
-
-
     private final static String sqlCopyTag = "INSERT INTO t_tags ( SELECT ?, itagname, itagid, 0 from t_tags WHERE ipnfsid=?)";
 
     /**
+     *
      * copy all directory tags from origin directory to destination. New copy marked as inherited.
      *
      * @param dbConnection
      * @param orign
      * @param destination
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
     void copyTags(Connection dbConnection, FsInode orign, FsInode destination) throws SQLException {
 
@@ -2012,7 +1934,6 @@ class FsSqlDriver {
         } finally {
             SqlHelper.tryToClose(stCopyTags);
         }
-
     }
 
     private static final String sqlSetTagOwner = "UPDATE t_tags_inodes SET iuid=?, ictime=? WHERE itagid=?";
@@ -2083,8 +2004,6 @@ class FsSqlDriver {
      *
      * Currently it's not allowed to modify it
      */
-
-
     private static final String sqlSetStorageInfo = "INSERT INTO t_storageinfo VALUES(?,?,?,?)";
 
     /**
@@ -2094,17 +2013,16 @@ class FsSqlDriver {
      * @param dbConnection
      * @param inode
      * @param storageInfo
-     * @throws ChimeraFsException
-     * @throws java.sql.SQLException
+     * @throws SQLException
      */
-    void setStorageInfo(Connection dbConnection, FsInode inode, InodeStorageInformation storageInfo) throws ChimeraFsException, SQLException {
+    void setStorageInfo(Connection dbConnection, FsInode inode, InodeStorageInformation storageInfo) throws
+                                                                                                     SQLException {
 
         PreparedStatement stSetStorageInfo = null; // clear locations in the storage system for the inode
 
         try {
 
             // no records updated - insert a new one
-
             stSetStorageInfo = dbConnection.prepareStatement(sqlSetStorageInfo);
             stSetStorageInfo.setString(1, inode.toString());
             stSetStorageInfo.setString(2, storageInfo.hsmName());
@@ -2117,17 +2035,17 @@ class FsSqlDriver {
             SqlHelper.tryToClose(stSetStorageInfo);
         }
     }
-
     private static final String sqlGetAccessLatency = "SELECT iaccessLatency FROM t_access_latency WHERE ipnfsid=?";
 
     /**
+     *
      * @param dbConnection
      * @param inode
      * @return Access Latency or null if not defined
-     * @throws ChimeraFsException
      * @throws SQLException
      */
-    AccessLatency getAccessLatency(Connection dbConnection, FsInode inode) throws ChimeraFsException, SQLException {
+    AccessLatency getAccessLatency(Connection dbConnection, FsInode inode) throws
+                                                                           SQLException {
         AccessLatency accessLatency = null;
         PreparedStatement stGetAccessLatency = null;
         ResultSet alResultSet = null;
@@ -2142,7 +2060,6 @@ class FsSqlDriver {
                 accessLatency = AccessLatency.valueOf(alResultSet.getInt("iaccessLatency"));
             }
 
-
         } finally {
             SqlHelper.tryToClose(alResultSet);
             SqlHelper.tryToClose(stGetAccessLatency);
@@ -2150,18 +2067,17 @@ class FsSqlDriver {
 
         return accessLatency;
     }
-
-
     private static final String sqlGetRetentionPolicy = "SELECT iretentionPolicy FROM t_retention_policy WHERE ipnfsid=?";
 
     /**
+     *
      * @param dbConnection
      * @param inode
      * @return Retention Policy or null if not defined
-     * @throws ChimeraFsException
      * @throws SQLException
      */
-    RetentionPolicy getRetentionPolicy(Connection dbConnection, FsInode inode) throws ChimeraFsException, SQLException {
+    RetentionPolicy getRetentionPolicy(Connection dbConnection, FsInode inode) throws
+                                                                               SQLException {
         RetentionPolicy retentionPolicy = null;
         PreparedStatement stRetentionPolicy = null;
         ResultSet rpResultSet = null;
@@ -2176,7 +2092,6 @@ class FsSqlDriver {
                 retentionPolicy = RetentionPolicy.valueOf(rpResultSet.getInt("iretentionPolicy"));
             }
 
-
         } finally {
             SqlHelper.tryToClose(rpResultSet);
             SqlHelper.tryToClose(stRetentionPolicy);
@@ -2184,11 +2099,11 @@ class FsSqlDriver {
 
         return retentionPolicy;
     }
-
     private static final String sqlSetAccessLatency = "INSERT INTO t_access_latency VALUES(?,?)";
     private static final String sqlUpdateAccessLatency = "UPDATE t_access_latency SET iaccessLatency=? WHERE ipnfsid=?";
 
-    void setAccessLatency(Connection dbConnection, FsInode inode, AccessLatency accessLatency) throws ChimeraFsException, SQLException {
+    void setAccessLatency(Connection dbConnection, FsInode inode, AccessLatency accessLatency) throws
+                                                                                               SQLException {
 
         PreparedStatement stSetAccessLatency = null; // clear locations in the storage system for the inode
         PreparedStatement stUpdateAccessLatency = null;
@@ -2214,11 +2129,11 @@ class FsSqlDriver {
             SqlHelper.tryToClose(stUpdateAccessLatency);
         }
     }
-
     private static final String sqlSetRetentionPolicy = "INSERT INTO t_retention_policy VALUES(?,?)";
     private static final String sqlUpdateRetentionPolicy = "UPDATE t_retention_policy SET iretentionPolicy=? WHERE ipnfsid=?";
 
-    void setRetentionPolicy(Connection dbConnection, FsInode inode, RetentionPolicy accessLatency) throws ChimeraFsException, SQLException {
+    void setRetentionPolicy(Connection dbConnection, FsInode inode, RetentionPolicy accessLatency) throws
+                                                                                                   SQLException {
 
         PreparedStatement stSetRetentionPolicy = null; // clear locations in the storage system for the inode
         PreparedStatement stUpdateRetentionPolicy = null;
@@ -2244,10 +2159,10 @@ class FsSqlDriver {
             SqlHelper.tryToClose(stUpdateRetentionPolicy);
         }
     }
-
     private static final String sqlRemoveStorageInfo = "DELETE FROM t_storageinfo WHERE ipnfsid=?";
 
-    void removeStorageInfo(Connection dbConnection, FsInode inode) throws ChimeraFsException, SQLException {
+    void removeStorageInfo(Connection dbConnection, FsInode inode) throws
+                                                                   SQLException {
 
         PreparedStatement stRemoveStorageInfo = null; // clear locations in the storage system for the inode
         try {
@@ -2259,21 +2174,21 @@ class FsSqlDriver {
             SqlHelper.tryToClose(stRemoveStorageInfo);
         }
     }
-
-
-    private static final String sqlGetStorageInfo = "SELECT ihsmName, istorageGroup, istorageSubGroup, iaccessLatency, iretentionPolicy FROM " + "t_storageinfo,t_access_latency,t_retention_policy " + "WHERE t_storageinfo.ipnfsid=t_access_latency.ipnfsid " + "AND t_storageinfo.ipnfsid=t_retention_policy.ipnfsid AND t_storageinfo.ipnfsid=?";
+    private static final String sqlGetStorageInfo = "SELECT ihsmName, istorageGroup, istorageSubGroup " +
+            "FROM t_storageinfo WHERE t_storageinfo.ipnfsid=?";
 
     /**
+     *
      * returns storage information like storage group, storage sub group, hsm,
      * retention policy and access latency associated with the inode.
      *
      * @param dbConnection
      * @param inode
-     * @return
      * @throws ChimeraFsException
-     * @throws java.sql.SQLException
+     * @throws SQLException
+     * @return
      */
-    InodeStorageInformation getSorageInfo(Connection dbConnection, FsInode inode) throws ChimeraFsException, SQLException {
+    InodeStorageInformation getStorageInfo(Connection dbConnection, FsInode inode) throws ChimeraFsException, SQLException {
 
         InodeStorageInformation storageInfo = null;
 
@@ -2290,10 +2205,8 @@ class FsSqlDriver {
                 String hsmName = storageInfoResult.getString("ihsmName");
                 String storageGroup = storageInfoResult.getString("istoragegroup");
                 String storageSubGroup = storageInfoResult.getString("istoragesubgroup");
-                AccessLatency accessLatency = AccessLatency.valueOf(storageInfoResult.getInt("iaccessLatency"));
-                RetentionPolicy retentionPolicy = RetentionPolicy.valueOf(storageInfoResult.getInt("iretentionPolicy"));
 
-                storageInfo = new InodeStorageInformation(inode, hsmName, storageGroup, storageSubGroup, accessLatency, retentionPolicy);
+                storageInfo = new InodeStorageInformation(inode, hsmName, storageGroup, storageSubGroup);
             } else {
                 // file not found
                 throw new FileNotFoundHimeraFsException(inode.toString());
@@ -2306,13 +2219,10 @@ class FsSqlDriver {
 
         return storageInfo;
     }
-
-
     /*
-    * directory caching
-    * the following set of methods should help to path2inode and inode2path operations
-    */
-
+     * directory caching
+     * the following set of methods should help to path2inode and inode2path operations
+     */
     private static final String sqlGetInodeFromCache = "SELECT ipnfsid FROM t_dir_cache WHERE ipath=?";
 
     String getInodeFromCache(Connection dbConnection, String path) throws SQLException {
@@ -2336,11 +2246,9 @@ class FsSqlDriver {
             SqlHelper.tryToClose(stGetInodeFromCache);
         }
 
-
         return inodeString;
 
     }
-
     private static final String sqlGetPathFromCache = "SELECT ipath FROM t_dir_cache WHERE ipnfsid=?";
 
     String getPathFromCache(Connection dbConnection, FsInode inode) throws SQLException {
@@ -2365,9 +2273,7 @@ class FsSqlDriver {
         }
 
         return path;
-
     }
-
     private static final String sqlSetInodeChecksum = "INSERT INTO t_inodes_checksum VALUES(?,?,?)";
 
     /**
@@ -2397,11 +2303,10 @@ class FsSqlDriver {
         }
 
     }
-
-
     private static final String sqlGetInodeChecksum = "SELECT isum FROM t_inodes_checksum WHERE ipnfsid=? AND itype=?";
 
     /**
+     *
      * @param dbConnection
      * @param inode
      * @param type
@@ -2436,11 +2341,11 @@ class FsSqlDriver {
         return checksum;
 
     }
-
     private static final String sqlRemoveInodeChecksum = "DELETE FROM t_inodes_checksum WHERE ipnfsid=? AND itype=?";
     private static final String sqlRemoveInodeAllChecksum = "DELETE FROM t_inodes_checksum WHERE ipnfsid=?";
 
     /**
+     *
      * @param dbConnection
      * @param inode
      * @param type
@@ -2470,12 +2375,10 @@ class FsSqlDriver {
 
     }
 
-
     /**
      * get inode of given path starting <i>root</i> inode.
-     *
      * @param dbConnection
-     * @param root         staring point
+     * @param root staring point
      * @param path
      * @return inode or null if path does not exist.
      * @throws SQLException
@@ -2485,15 +2388,15 @@ class FsSqlDriver {
 
 
         File pathFile = new File(path);
-        List<String> pathElemts = new ArrayList<String>();
+        List<String> pathElemts = new ArrayList<>();
 
 
         do {
             String fileName = pathFile.getName();
             if (fileName.length() != 0) {
                 /*
-                * skip multiple '/'
-                */
+                 * skip multiple '/'
+                 */
                 pathElemts.add(pathFile.getName());
             }
 
@@ -2503,22 +2406,22 @@ class FsSqlDriver {
         FsInode parentInode = root;
         FsInode inode = root;
         /*
-        * while list in reverse order, we have too go backward
-        */
+         * while list in reverse order, we have too go backward
+         */
         for (int i = pathElemts.size(); i > 0; i--) {
             String f = pathElemts.get(i - 1);
             inode = inodeOf(dbConnection, parentInode, f);
 
             if (inode == null) {
                 /*
-                * element not found stop walking
-                */
+                 * element not found stop walking
+                 */
                 break;
             }
 
             /*
-            * if is a link, then resove it
-            */
+             * if is a link, then resove it
+             */
             Stat s = stat(dbConnection, inode);
             if (UnixPermission.getType(s.getMode()) == UnixPermission.S_IFLNK) {
                 byte[] b = new byte[(int) s.getSize()];
@@ -2534,11 +2437,79 @@ class FsSqlDriver {
         }
 
         return inode;
-
     }
 
-    private final static String sqlGetACL = "SELECT * FROM t_acl WHERE rs_id =  ? ORDER BY ace_order";
+    /**
+     * Get the inodes of given the path starting at <i>root</i>.
+     *
+     * @param dbConnection
+     * @param root staring point
+     * @param path
+     * @return inode or null if path does not exist.
+     * @throws SQLException
+     */
+    List<FsInode>
+        path2inodes(Connection dbConnection, FsInode root, String path)
+        throws SQLException, IOHimeraFsException
+    {
+        File pathFile = new File(path);
+        List<String> pathElements = new ArrayList<>();
 
+        do {
+            String fileName = pathFile.getName();
+            if (fileName.length() != 0) {
+                /* Skip multiple file separators.
+                 */
+                pathElements.add(pathFile.getName());
+            }
+            pathFile = pathFile.getParentFile();
+        } while (pathFile != null);
+
+        FsInode parentInode = root;
+        FsInode inode;
+
+        List<FsInode> inodes = new ArrayList<>(pathElements.size() + 1);
+        inodes.add(root);
+
+        /* Path elements are in reverse order.
+         */
+        for (String f: Lists.reverse(pathElements)) {
+            inode = inodeOf(dbConnection, parentInode, f);
+
+            if (inode == null) {
+                return Collections.emptyList();
+            }
+
+            inodes.add(inode);
+
+            /* If inode is a link then resolve it.
+             */
+            Stat s = stat(dbConnection, inode);
+            inode.setStatCache(s);
+            if (UnixPermission.getType(s.getMode()) == UnixPermission.S_IFLNK) {
+                byte[] b = new byte[(int) s.getSize()];
+                int n = read(dbConnection, inode, 0, 0, b, 0, b.length);
+                String link = new String(b, 0, n);
+                if (link.charAt(0) == '/') {
+                    // FIXME: has to be done more elegantly
+                    parentInode = new FsInode(parentInode.getFs(), "000000000000000000000000000000000000");
+                    inodes.add(parentInode);
+                }
+                List<FsInode> linkInodes =
+                    path2inodes(dbConnection, parentInode, link);
+                if (linkInodes.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                inodes.addAll(linkInodes.subList(1, linkInodes.size()));
+                inode = linkInodes.get(linkInodes.size() - 1);
+            }
+            parentInode = inode;
+        }
+
+        return inodes;
+    }
+
+    private final static String  sqlGetACL = "SELECT * FROM t_acl WHERE rs_id =  ? ORDER BY ace_order";
     /**
      * Get inode's Access Control List. An empty list is returned if there are no ACL assigned
      * to the <code>inode</code>.
@@ -2548,7 +2519,7 @@ class FsSqlDriver {
      * @throws SQLException
      */
     List<ACE> getACL(Connection dbConnection, FsInode inode) throws SQLException {
-        ArrayList<ACE> acl = new ArrayList<ACE>();
+        List<ACE> acl = new ArrayList<>();
         PreparedStatement stGetAcl = null;
         ResultSet rs = null;
         try {
@@ -2567,15 +2538,15 @@ class FsSqlDriver {
                         rs.getString("address_msk")));
             }
 
-        } finally {
+        }finally{
             SqlHelper.tryToClose(rs);
             SqlHelper.tryToClose(stGetAcl);
         }
         return acl;
     }
+
     private static final String sqlDeleteACL = "DELETE FROM t_acl WHERE rs_id = ?";
     private static final String sqlAddACL = "INSERT INTO t_acl VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
     /**
      * Set inode's Access Control List. The existing ACL will be replaced.
      * @param dbConnection
@@ -2593,7 +2564,7 @@ class FsSqlDriver {
             stDeleteACL.setString(1, inode.toString());
             stDeleteACL.executeUpdate();
 
-            if (acl.isEmpty()) {
+            if(acl.isEmpty()) {
                 return;
             }
             stAddACL = dbConnection.prepareStatement(sqlAddACL);
@@ -2611,22 +2582,23 @@ class FsSqlDriver {
                 stAddACL.setInt(7, ace.getWhoID());
                 stAddACL.setString(8, ace.getAddressMsk());
                 stAddACL.setInt(9, order);
+
                 stAddACL.addBatch();
                 order++;
             }
             stAddACL.executeBatch();
             setFileCTime(dbConnection, inode, 0, System.currentTimeMillis());
-        } finally {
+        }finally{
             SqlHelper.tryToClose(stDeleteACL);
             SqlHelper.tryToClose(stAddACL);
         }
     }
 
-    /**
-     * Check <i>sqlState</i> for unique key violation.
-     * @param sqlState
-     * @return true is sqlState is a unique key violation and false other wise
-     */
+     /**
+      * Check <i>sqlState</i> for unique key violation.
+      * @param sqlState
+      * @return true is sqlState is a unique key violation and false other wise
+      */
     public boolean isDuplicatedKeyError(String sqlState) {
         return sqlState.equals("23505");
     }
@@ -2641,8 +2613,8 @@ class FsSqlDriver {
     }
 
     /**
-     * creates an instance of org.dcache.chimera.&lt;dialect&gt;FsSqlDriver or
-     * default driver, if specific driver not available
+     *  creates an instance of org.dcache.chimera.&lt;dialect&gt;FsSqlDriver or
+     *  default driver, if specific driver not available
      *
      * @param dialect
      * @return FsSqlDriver
@@ -2655,8 +2627,7 @@ class FsSqlDriver {
 
         try {
             driver = (FsSqlDriver) Class.forName(dialectDriverClass).newInstance();
-        } catch (InstantiationException e) {
-        } catch (IllegalAccessException e) {
+        } catch (InstantiationException | IllegalAccessException e) {
         } catch (ClassNotFoundException e) {
             _log.info(dialectDriverClass + " not found, using default FsSQLDriver.");
             driver = new FsSqlDriver();
@@ -2664,5 +2635,4 @@ class FsSqlDriver {
 
         return driver;
     }
-
 }

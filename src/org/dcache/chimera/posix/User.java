@@ -25,13 +25,4 @@ public interface User {
     public String role();
 
     public String locations();
-
 }
-
-
-/*
- * $Log: User.java,v $
- * Revision 1.3  2006/03/15 12:52:32  tigran
- * addes generic User interface
- *
- */

@@ -20,7 +20,7 @@ import org.dcache.chimera.posix.Stat;
 
 public class FsInode_PARENT extends FsInode {
 
-    String _parent = null;
+    String _parent;
 
     public FsInode_PARENT(FileSystemProvider fs, String id) {
         super(fs, id, FsInodeType.PARENT);
@@ -45,8 +45,8 @@ public class FsInode_PARENT extends FsInode {
             byte[] b = (_parent + "\n").getBytes();
 
             /*
-            * are we still inside ?
-            */
+             * are we still inside ?
+             */
             if (pos > b.length) {
                 return 0;
             }
@@ -81,5 +81,4 @@ public class FsInode_PARENT extends FsInode {
     public int write(long pos, byte[] data, int offset, int len) {
         return -1;
     }
-
 }

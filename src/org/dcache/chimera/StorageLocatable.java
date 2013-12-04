@@ -17,10 +17,10 @@
 package org.dcache.chimera;
 
 
-/*  
+/*
 -- LOCATION INFO
 --
--- Generic storage information 
+-- Generic storage information
 -- ipnfsid   : pnfsid of the inode
 -- itype     : type of storage, e.g. tape, disk
 -- ilocation : type specific information like pool name for disk and HSM connetion for tape
@@ -28,18 +28,18 @@ package org.dcache.chimera;
 -- ictime    : location creation time
 -- iatime    : last access time, probably performance killer, but nice to have for statistics
 -- istate    : location status ONLINE/OFF-LINE
- 
- 
+
+
  CREATE TABLE t_locationinfo {
-	ipnfsid CHAR(36),
-	itype INT NOT NULL,
-	ilocation VARCHAR(1024) NOT NULL,
-	ipriority INT NOT NULL,
-	ictime timestamp NOT NULL,
-	iatime timestamp NOT NULL,
-	istate INT NOT NULL,
-	FOREIGN KEY (ipnfsid) REFERENCES t_inodes( ipnfsid ),
-	PRIMARY KEY (iparent,itype,ilocation)
+    ipnfsid CHAR(36),
+    itype INT NOT NULL,
+    ilocation VARCHAR(1024) NOT NULL,
+    ipriority INT NOT NULL,
+    ictime timestamp NOT NULL,
+    iatime timestamp NOT NULL,
+    istate INT NOT NULL,
+    FOREIGN KEY (ipnfsid) REFERENCES t_inodes( ipnfsid ),
+    PRIMARY KEY (iparent,itype,ilocation)
 };
  */
 
@@ -58,9 +58,4 @@ public interface StorageLocatable {
 
     public boolean isOnline();
 }
-/*
- * $Log: StorageLocatable.java,v $
- * Revision 1.1  2006/10/02 13:30:28  tigran
- * added cacheinfo handling into the core of Cchimera
- *
- */
+

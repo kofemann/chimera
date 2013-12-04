@@ -16,21 +16,20 @@
  */
 package org.dcache.chimera;
 
+import com.google.common.base.Charsets;
 import org.dcache.chimera.posix.Stat;
 
 public class FsInode_CONST extends FsInode {
 
-
-    private static final String _title = "\n >> Chimera FS Engine Version 0.0.8 $Rev$ << \n";
+    private static final String _title = "\n >> Chimera FS Engine Version 0.0.9 $Rev: 897 $ << \n";
     private final byte[] _version;
 
-
-    public FsInode_CONST(FileSystemProvider fs, String cnst) {
-        super(fs, cnst, FsInodeType.CONST);
+    public FsInode_CONST(FileSystemProvider fs, String id) {
+        super(fs, id, FsInodeType.CONST);
         StringBuilder sb = new StringBuilder(_title);
         sb.append("\n").append(_fs.getInfo()).append("\n");
 
-        _version = sb.toString().getBytes();
+        _version = sb.toString().getBytes(Charsets.UTF_8);
     }
 
     @Override
@@ -101,13 +100,13 @@ public class FsInode_CONST extends FsInode {
 
     /**
      * fake reply: the inode is a file
-     * size is equal to size of version stiong
+     * size is equal to size of version string
      * access time, creation time, modification time is current time.
      */
     @Override
     public Stat stat() throws ChimeraFsException {
 
-        org.dcache.chimera.posix.Stat ret = new org.dcache.chimera.posix.Stat();
+        Stat ret = new Stat();
         ret.setNlink(1);
         ret.setMode(0444 | UnixPermission.S_IFREG);
         ret.setSize(_version.length);
@@ -120,8 +119,8 @@ public class FsInode_CONST extends FsInode {
     }
 
     /*
-      *  so to say:  read only file
-      */
+     *  so to say:  read only file
+     */
     @Override
     public int write(long pos, byte[] data, int offset, int len) {
         return -1;

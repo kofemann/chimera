@@ -22,7 +22,6 @@ import org.slf4j.LoggerFactory;
 public class UnixPermissionHandler implements AclHandler {
 
     private static Logger _log = LoggerFactory.getLogger(UnixPermissionHandler.class);
-
     private static UnixPermissionHandler HANDLER = new UnixPermissionHandler();
 
     private UnixPermissionHandler() {
@@ -31,7 +30,6 @@ public class UnixPermissionHandler implements AclHandler {
     public static UnixPermissionHandler getInstance() {
         return HANDLER;
     }
-
 
     private static boolean inGroup(User user, int group) {
 
@@ -43,8 +41,8 @@ public class UnixPermissionHandler implements AclHandler {
         if (group == userGid) {
             inGroup = true;
         } else {
-            for (int i = 0; i < userGids.length; i++) {
-                if (group == userGids[i]) {
+            for (int gid : userGids) {
+                if (group == gid) {
                     inGroup = true;
                     break;
                 }
@@ -54,17 +52,19 @@ public class UnixPermissionHandler implements AclHandler {
         return inGroup;
     }
 
+    @Override
     public boolean isAllowed(Acl acl, User user, int requsetedAcl) {
 
         boolean isAllowed = false;
         int userUid = ((UnixUser) user).getUID();
 
-        if (!(acl instanceof UnixAcl)) return false;
+        if (!(acl instanceof UnixAcl)) {
+            return false;
+        }
 
         int resourceUid = ((UnixAcl) acl).getOwner();
         int resourceGid = ((UnixAcl) acl).getGroup();
         int resourcePermissions = ((UnixAcl) acl).getPermission();
-
 
         if (_log.isDebugEnabled()) {
             StringBuilder sb = new StringBuilder("ACL request : ");
@@ -106,7 +106,6 @@ public class UnixPermissionHandler implements AclHandler {
 
             _log.debug(sb.toString());
         }
-
 
         switch (userUid) {
 
@@ -186,5 +185,4 @@ public class UnixPermissionHandler implements AclHandler {
         _log.debug("IsAllowed: " + isAllowed);
         return isAllowed;
     }
-
 }

@@ -16,6 +16,7 @@
  */
 package org.dcache.chimera;
 
+import com.google.common.base.Charsets;
 import java.util.Arrays;
 
 import org.dcache.chimera.posix.Stat;
@@ -58,11 +59,10 @@ public class FsInode_PSET extends FsInode {
     @Override
     public void setMTime(long mtime) throws ChimeraFsException {
 
-
         if (_args[0].equals("size")) {
             try {
                 _fs.setFileSize(this, Long.parseLong(_args[1]));
-            } catch (java.lang.NumberFormatException ignored) {
+            } catch (NumberFormatException ignored) {
                 // Bad values ignored
             }
             super.setMTime(mtime);
@@ -71,10 +71,7 @@ public class FsInode_PSET extends FsInode {
 
         if (_args[0].equals("io")) {
             _fs.setInodeIo(this, _args[1].equals("on"));
-            return;
         }
-
-
     }
 
     @Override
@@ -100,16 +97,14 @@ public class FsInode_PSET extends FsInode {
     }
 
     @Override
-    public String toFullString() {
+    public byte[] getIdentifier() {
         StringBuilder sb = new StringBuilder();
 
-        sb.append(_fs.getFsId()).append(":").append(type()).append(":").append(_id);
-
-        for (int i = 0; i < _args.length; i++) {
-            sb.append(":").append(_args[i]);
+        for (String arg : _args) {
+            sb.append(arg).append(':');
         }
 
-        return sb.toString();
+        return byteBase(sb.toString().getBytes(Charsets.UTF_8));
     }
 
     @Override
@@ -118,14 +113,18 @@ public class FsInode_PSET extends FsInode {
     }
 
     /* (non-Javadoc)
-    * @see org.dcache.chimera.FsInode#equals(java.lang.Object)
-    */
+     * @see org.dcache.chimera.FsInode#equals(java.lang.Object)
+     */
     @Override
     public boolean equals(Object o) {
 
-        if (o == this) return true;
+        if (o == this) {
+            return true;
+        }
 
-        if (!(o instanceof FsInode_PSET)) return false;
+        if (!(o instanceof FsInode_PSET)) {
+            return false;
+        }
 
         return super.equals(o) && Arrays.equals(_args, ((FsInode_PSET) o)._args);
     }
@@ -138,5 +137,4 @@ public class FsInode_PSET extends FsInode {
     public int hashCode() {
         return 17;
     }
-
 }

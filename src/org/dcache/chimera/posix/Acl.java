@@ -18,5 +18,4 @@ package org.dcache.chimera.posix;
 
 public class Acl {
 
-
 }

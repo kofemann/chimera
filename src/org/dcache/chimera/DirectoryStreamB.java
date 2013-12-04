@@ -33,7 +33,7 @@ import java.util.Iterator;
  *       stream.close();
  *   }
  * </pre>
- * <p/>
+ *
  * This is a backport of the JDK 7 interface.
  */
 public interface DirectoryStreamB<T> extends Closeable, Iterable<T> {
@@ -43,14 +43,14 @@ public interface DirectoryStreamB<T> extends Closeable, Iterable<T> {
         /**
          * Decides if the given directory entry should be accepted or filtered.
          *
-         * @param entry the directory entry to be tested
-         * @return {@code true} if the directory entry should be accepted
+         * @param   entry
+         *          the directory entry to be tested
+         *
+         * @return  {@code true} if the directory entry should be accepted
          */
         boolean accept(T entry);
     }
 
-
     @Override
     Iterator<T> iterator();
-
 }

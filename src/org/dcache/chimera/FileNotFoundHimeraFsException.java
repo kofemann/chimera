@@ -16,16 +16,11 @@
  */
 package org.dcache.chimera;
 
-public class FileNotFoundHimeraFsException extends org.dcache.chimera.ChimeraFsException {
+public class FileNotFoundHimeraFsException extends ChimeraFsException {
 
-    /**
-     *
-     */
     private static final long serialVersionUID = 2898082345212568953L;
 
-    /**
-     * Creates a new instance of FileNotFoundHimeraFsException
-     */
+    /** Creates a new instance of FileNotFoundHimeraFsException */
     public FileNotFoundHimeraFsException() {
         super();
     }
@@ -33,6 +28,4 @@ public class FileNotFoundHimeraFsException extends org.dcache.chimera.ChimeraFsE
     public FileNotFoundHimeraFsException(String path) {
         super("path [" + path + "] does not exist");
     }
-
-
 }

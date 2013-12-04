@@ -22,62 +22,60 @@ package org.dcache.chimera;
 public class UnixPermission {
 
     private final int _mode;
-
     static public final int S_IRUSR = 00400; // owner has read permission
     static public final int S_IWUSR = 00200; // owner has write permission
     static public final int S_IXUSR = 00100; // owner has execute permission
-
     static public final int S_IRGRP = 00040; // group has read permission
     static public final int S_IWGRP = 00020; // group has write permission
     static public final int S_IXGRP = 00010; // group has execute permission
-
     static public final int S_IROTH = 00004; // others have read permission
     static public final int S_IWOTH = 00002; // others have write permission
     static public final int S_IXOTH = 00001; // others have execute
     // permission
-
     /**
      * permission mask
      */
-    static public final int S_PERMS = 00777; // permission mask
-
+    static public final int S_PERMS = 07777; // permission mask
     static public final int s_ISTICKY = 01000; // sticky bit
+
+    /**
+     * Set UID bit
+     */
+    static public final int S_ISUID  = 04000;
+
+    /**
+     * Set GID bit
+     */
+    static public final int S_ISGID = 02000;
 
     /**
      * Unix domain socket
      */
     static public final int S_IFSOCK = 0140000;
-
     /**
      * Symbolic link
      */
     static public final int S_IFLNK = 0120000;
-
     /**
      * Regular file
      */
     static public final int S_IFREG = 0100000;
-
     /**
      * BLock device
      */
     static public final int S_IFBLK = 0060000;
-
     /**
      * Directory
      */
     static public final int S_IFDIR = 0040000;
-
     /**
      * Character device
      */
     static public final int S_IFCHR = 0020000;
-
     /**
      * Named pipe
      */
     static public final int S_IFIFO = 0010000;
-
     /**
      * file type mask
      */
@@ -129,7 +127,13 @@ public class UnixPermission {
             modeString[2] = 'w';
         }
         if ((_mode & S_IXUSR) == S_IXUSR) {
-            modeString[3] = 'x';
+            if ((_mode & S_ISUID) == S_ISUID) {
+                modeString[3] = 's';
+            } else {
+                modeString[3] = 'x';
+            }
+        } else if ((_mode & S_ISUID) == S_ISUID) {
+            modeString[3] = 'S';
         }
 
         // GROUP
@@ -140,8 +144,15 @@ public class UnixPermission {
             modeString[5] = 'w';
         }
         if ((_mode & S_IXGRP) == S_IXGRP) {
-            modeString[6] = 'x';
+            if ((_mode & S_ISGID) == S_ISGID) {
+                modeString[6] = 's';
+            } else {
+                modeString[6] = 'x';
+            }
+        } else if ((_mode & S_ISGID) == S_ISGID) {
+            modeString[6] = 'S';
         }
+
 
         // OTHERS
         if ((_mode & S_IROTH) == S_IROTH) {

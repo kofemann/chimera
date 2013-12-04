@@ -29,7 +29,8 @@ import org.dcache.chimera.util.SqlHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class DirectoryStreamImpl implements DirectoryStreamB<HimeraDirectoryEntry>, Iterator<HimeraDirectoryEntry> {
+public class DirectoryStreamImpl implements DirectoryStreamB<HimeraDirectoryEntry>,
+        Iterator<HimeraDirectoryEntry> {
 
     private final static Logger _log = LoggerFactory.getLogger(DirectoryStreamImpl.class);
     private final Connection _con;
@@ -58,7 +59,7 @@ public class DirectoryStreamImpl implements DirectoryStreamB<HimeraDirectoryEntr
         try {
             _con.close();
         } catch (SQLException e) {
-            _log.error("failed to close DB connection: {}", e.getMessage());
+            _log.error("failed to close DB connection: " + e.getMessage());
             throw new IOException(e.getMessage());
         }
     }
@@ -72,7 +73,9 @@ public class DirectoryStreamImpl implements DirectoryStreamB<HimeraDirectoryEntr
          *
          * Cache the result of the last call as long as next() was't called.
          */
-        if (_hasPendingElement) return true;
+        if (_hasPendingElement) {
+            return true;
+        }
         try {
             boolean hasNext = _listResultSet.next();
             if (hasNext) {

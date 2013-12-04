@@ -16,6 +16,8 @@
  */
 package org.dcache.chimera;
 
+import java.nio.ByteBuffer;
+import java.util.Arrays;
 import org.dcache.chimera.posix.Stat;
 
 /**
@@ -26,7 +28,6 @@ public class FsInode {
     private static final int NIBBLES_IN_32_BIT_INTEGER = 8;
     private static final int RADIX_HEXADECIMAL = 16;
     private static final int ID_LENGTH_PNFS_ID = 24;
-
     // we are not allowed to modify it
     protected final String _id;
     /**
@@ -41,24 +42,17 @@ public class FsInode {
     /**
      * inode posix stat Object
      */
-    private Stat _stat = null;
-
+    private Stat _stat;
     /**
      * parent inode. In case of hard links, one of the
      * possible parents.
      */
-    private FsInode _parent = null;
-    /**
-     * inode full id, e.g. fsid:inode type:inode is:[ some extra information]
-     */
-    private String _longIdString = null;
-
+    private FsInode _parent;
 
     /**
      * create a new inode in filesystem fs with given id and type
-     *
-     * @param fs   file system
-     * @param id   the new id
+     * @param fs file system
+     * @param id the new id
      * @param type inode type
      */
     public FsInode(FileSystemProvider fs, String id, FsInodeType type) {
@@ -67,7 +61,6 @@ public class FsInode {
 
     /**
      * create a new inode of type 'inode' in the filesystem fs with given id
-     *
      * @param fs file system
      * @param id inode id
      */
@@ -77,7 +70,6 @@ public class FsInode {
 
     /**
      * Create a new FsInode with given id and level,  type == INODE
-     *
      * @param fs
      * @param id
      * @param level
@@ -103,7 +95,6 @@ public class FsInode {
 
     /**
      * Create a new FsInode with newly generated id, type == INODE, level==0
-     *
      * @param fs
      */
     public FsInode(FileSystemProvider fs) {
@@ -181,7 +172,7 @@ public class FsInode {
     }
 
     private long buildDecodedAndXoredInodeId() {
-        long inodeId = 1;
+        long inodeId = 0;
 
         for (int index = 0; index < _id.length(); index += NIBBLES_IN_32_BIT_INTEGER) {
             int endIndex = index + NIBBLES_IN_32_BIT_INTEGER;
@@ -203,10 +194,9 @@ public class FsInode {
      *
      * @return new id
      */
-    public static String generateNewID() {
+    public final static String generateNewID() {
         return InodeId.newID(0);
     }
-
 
     /**
      * Generates new inode id assigned to filesystem referenced by <i>fsId</>
@@ -214,11 +204,12 @@ public class FsInode {
      * @param fsId
      * @return new id
      */
-    public static String generateNewID(int fsId) {
+    public final static String generateNewID(int fsId) {
         return InodeId.newID(fsId);
     }
 
     /**
+     *
      * @return inode's type, e.q.: inode, tag, id
      */
     public FsInodeType type() {
@@ -226,20 +217,37 @@ public class FsInode {
     }
 
     /**
+     * A helper method to generate the base path of identifier.
+     * @param opaque inode specific data
+     * @return
+     */
+    protected final byte[] byteBase(byte[] opaque) {
+        ByteBuffer b = ByteBuffer.allocate(128);
+        byte[] fh = InodeId.hexStringToByteArray(_id);
+        b.put((byte) _fs.getFsId())
+                .put((byte) _type.getType())
+                .put((byte) fh.length)
+                .put(fh);
+
+        b.put((byte) opaque.length);
+        b.put(opaque);
+
+        return Arrays.copyOf(b.array(), b.position());
+    }
+
+    /**
+     * @return a byte[] representation of inode, including type and fsid
+     */
+    public byte[] getIdentifier() {
+        return byteBase( Integer.toString(_level).getBytes());
+    }
+
+    @Deprecated
+    /**
      * @return a String representation of inode, including type and fsid
      */
     public String toFullString() {
-
-        if (_longIdString == null) {
-            StringBuilder sb = new StringBuilder();
-            sb.append(_fs.getFsId()).append(":");
-            sb.append(_type).append(":");
-            sb.append(_id).append(":").append(_level);
-
-            _longIdString = sb.toString();
-        }
-
-        return _longIdString;
+        return JdbcFs.toHexString(getIdentifier());
     }
 
     /**
@@ -251,9 +259,9 @@ public class FsInode {
     }
 
     /**
+     *
      * gets the actual stat information of the inode and updated the cached value
      * See also statCache()
-     *
      * @return Stat
      * @throws FileNotFoundHimeraFsException
      */
@@ -263,9 +271,9 @@ public class FsInode {
     }
 
     /**
+     *
      * gets the cached value of  stat information of the inode
      * See also stat()
-     *
      * @return Stat
      * @throws FileNotFoundHimeraFsException
      */
@@ -316,7 +324,6 @@ public class FsInode {
         return _fs.inodeOf(this, name);
     }
 
-
     /**
      * create new file in the current directory with name 'name'
      */
@@ -335,7 +342,6 @@ public class FsInode {
         return _fs.createLink(this, name, uid, gid, mode, dest);
     }
 
-
     /**
      * get inode of root element of the file system
      */
@@ -352,42 +358,35 @@ public class FsInode {
             rc = true;
         } catch (FileNotFoundHimeraFsException hfe) {
         }
+        return rc;
+    }
+
+    public boolean isDirectory() {
+
+        boolean rc = false;
+
+        try {
+            if (exists() && ((_stat.getMode() & UnixPermission.S_IFDIR) == UnixPermission.S_IFDIR)) {
+                rc = true;
+            }
+        } catch(ChimeraFsException ignore) {
+        }
 
         return rc;
     }
 
-    /**
-     * Tests whether the file denoted by this abstract pathname is a directory.
-     *
-     * @return {@code true} if and only if the file denoted by this inode exists
-     * and is a directory; {@code false} otherwise
-     */
-    public boolean isDirectory() {
+    public boolean isLink() {
+
+        boolean rc = false;
 
         try {
-            return new UnixPermission(statCache().getMode()).isDir();
-        } catch (ChimeraFsException e) {
-            // NOP
+            if (exists() && new UnixPermission(_stat.getMode()).isSymLink()) {
+                rc = true;
+            }
+        } catch(ChimeraFsException ignore) {
         }
 
-        return false;
-    }
-
-    /**
-     * Tests whether the file denoted by this abstract pathname is a symbolic
-     * link.
-     *
-     * @return {@code true} if and only if the file denoted by this inode exists
-     * and is a symbolic link; {@code false} otherwise
-     */
-    public boolean isLink() throws ChimeraFsException {
-        try {
-            return new UnixPermission(statCache().getMode()).isSymLink();
-        } catch (ChimeraFsException e) {
-            // NOP
-        }
-
-        return false;
+        return rc;
     }
 
     public byte[] readlink() throws ChimeraFsException {
@@ -423,12 +422,11 @@ public class FsInode {
     }
 
     /**
-     * sets a new size for the file. No effect, it it's a one of the levels.
+     *  sets a new size for the file. No effect, it it's a one of the levels.
      *
      * @param size
      * @throws ChimeraFsException
      */
-
     public void setSize(long size) throws ChimeraFsException {
         // no faked sizes for levels
         if (_level != 0) {
@@ -451,6 +449,7 @@ public class FsInode {
     }
 
     /**
+     *
      * @param atime new time in milliseconds
      * @throws ChimeraFsException
      */
@@ -462,6 +461,7 @@ public class FsInode {
     }
 
     /**
+     *
      * @param ctime new time in milliseconds
      * @throws ChimeraFsException
      */
@@ -473,6 +473,7 @@ public class FsInode {
     }
 
     /**
+     *
      * @param mtime new time in milliseconds
      * @throws ChimeraFsException
      */
@@ -506,7 +507,6 @@ public class FsInode {
         _parent = parent;
     }
 
-
     // shortcut for setAtime, setMtime, setMode, setUid, setGid, setSize
     public void setStat(Stat predefinedStat) {
         try {
@@ -521,14 +521,17 @@ public class FsInode {
         _stat = predefinedStat;
     }
 
-
     //  for use in Collections
     // Override from Object
     @Override
     public boolean equals(Object o) {
 
-        if (o == this) return true;
-        if (!(o instanceof FsInode)) return false;
+        if (o == this) {
+            return true;
+        }
+        if (!(o instanceof FsInode)) {
+            return false;
+        }
 
         FsInode otherInode = (FsInode) o;
 
@@ -540,13 +543,11 @@ public class FsInode {
 
     @Override
     public int hashCode() {
-        return this.toFullString().hashCode();
+        return Arrays.hashCode(getIdentifier());
     }
-
-
     // only package classes allowed to use this
-    private boolean _ioEnabled = false;
-    private boolean _ioFlagUpToDate = false;
+    private boolean _ioEnabled;
+    private boolean _ioFlagUpToDate;
 
     boolean isIoEnabled() {
         if (!_ioFlagUpToDate) {
@@ -563,7 +564,7 @@ public class FsInode {
         return _level;
     }
 
-    public DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream() throws IOHimeraFsException {
+    public DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream() throws ChimeraFsException {
         return _fs.newDirectoryStream(this);
     }
 }

@@ -20,11 +20,7 @@ import java.io.IOException;
 
 public class ChimeraFsException extends IOException {
 
-    /**
-     *
-     */
     private static final long serialVersionUID = 6626394459630111276L;
-
 
     /**
      * Creates a new instance of <code>ChimeraFsException</code> without detail message.
@@ -33,23 +29,16 @@ public class ChimeraFsException extends IOException {
         super();
     }
 
-
     /**
      * Constructs an instance of <code>ChimeraFsException</code> with the specified detail message.
-     *
      * @param msg the detail message.
      */
     public ChimeraFsException(String msg) {
         super(msg);
     }
 
-    public ChimeraFsException(Throwable cause) {
-        super(cause);
-    }
-
-    public ChimeraFsException(String message, Throwable cause) {
+    public ChimeraFsException(String message, Throwable cause)
+    {
         super(message, cause);
     }
-
 }
-

@@ -24,22 +24,20 @@ public class DirectoryStreamHelper {
 
     /**
      * Convert directory stream into a {@link List}.
-     *
      * @param inode of a directory to be listed
      * @return a list of {@link HimeraDirectoryEntry}
      * @throws IOException
      */
     public static List<HimeraDirectoryEntry> listOf(FsInode inode) throws IOException, IOHimeraFsException {
 
-        List<HimeraDirectoryEntry> directoryList = new ArrayList<HimeraDirectoryEntry>(inode.statCache().getNlink());
-        DirectoryStreamB<HimeraDirectoryEntry> dirStream = inode.newDirectoryStream();
-        try {
+        List<HimeraDirectoryEntry> directoryList = new ArrayList<>(inode.statCache().getNlink());
+        try (DirectoryStreamB<HimeraDirectoryEntry> dirStream =
+                inode.newDirectoryStream()) {
             for (HimeraDirectoryEntry e : dirStream) {
                 directoryList.add(e);
             }
-        } finally {
-            dirStream.close();
         }
+
         return directoryList;
     }
 }

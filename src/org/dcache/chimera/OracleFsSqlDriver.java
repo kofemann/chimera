@@ -25,36 +25,31 @@ import org.dcache.chimera.util.SqlHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * Oracle specific SQL driver
  */
-
 class OracleFsSqlDriver extends FsSqlDriver {
 
-    /**
-     * logger
-     */
     private static final Logger _log = LoggerFactory.getLogger(OracleFsSqlDriver.class);
 
     /**
-     * this is a utility class which is issues SQL queries on database
+     *  this is a utility class which is issues SQL queries on database
+     *
      */
     protected OracleFsSqlDriver() {
         _log.info("Running Oracle specific Driver");
     }
-
-
     private static final String sqlInode2Path = "SELECT iname, LEVEL AS deep FROM (SELECT * FROM  t_dirs WHERE iname !='.' AND iname !='..') start with ipnfsid=? CONNECT BY  ipnfsid = PRIOR iparent ORDER BY deep DESC";
 
     /**
+     *
      * return the path associated with inode, starting from root of the tree.
      * in case of hard link, one of the possible paths is returned
      *
      * @param dbConnection
      * @param inode
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     @Override
     String inode2path(Connection dbConnection, FsInode inode, FsInode startFrom, boolean inclusive) throws SQLException {
@@ -62,7 +57,6 @@ class OracleFsSqlDriver extends FsSqlDriver {
         String path = null;
         PreparedStatement ps = null;
         ResultSet result = null;
-
 
         try {
 
@@ -85,5 +79,4 @@ class OracleFsSqlDriver extends FsSqlDriver {
 
         return path;
     }
-
 }

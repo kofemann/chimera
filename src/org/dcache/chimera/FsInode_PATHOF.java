@@ -20,7 +20,7 @@ import org.dcache.chimera.posix.Stat;
 
 public class FsInode_PATHOF extends FsInode {
 
-    private String _path = null;
+    private String _path;
 
     public FsInode_PATHOF(FileSystemProvider fs, String id) {
         super(fs, id, FsInodeType.PATHOF);
@@ -49,7 +49,6 @@ public class FsInode_PATHOF extends FsInode {
         System.arraycopy(b, (int) pos, data, 0, copyLen);
 
         return copyLen;
-
     }
 
     @Override
@@ -69,5 +68,4 @@ public class FsInode_PATHOF extends FsInode {
     public int write(long pos, byte[] data, int offset, int len) {
         return -1;
     }
-
 }

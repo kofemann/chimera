@@ -21,11 +21,9 @@ package org.dcache.chimera.posix;
  */
 public class UnixAcl extends Acl {
 
-
     private final int _owner;
     private final int _group;
     private final int _permission;
-
 
     public UnixAcl(int owner, int group, int permission) {
         _owner = owner;
@@ -44,13 +42,4 @@ public class UnixAcl extends Acl {
     public int getOwner() {
         return _owner;
     }
-
 }
-
-
-/*
- * $Log: UnixAcl.java,v $
- * Revision 1.1  2006/03/09 15:49:37  tigran
- * added new permissions model
- *
- */

@@ -33,12 +33,12 @@ public class FsInode_TAGS extends FsInode {
     public int read(long pos, byte[] data, int offset, int len) {
 
         StringBuilder sb = new StringBuilder();
-        int rc = 0;
-        String[] list = null;
+        int rc;
+        String[] list;
         try {
             list = _fs.tags(this);
-            for (int i = 0; i < list.length; i++) {
-                sb.append(".(tag)(").append(list[i]).append(")\n");
+            for (String tag : list) {
+                sb.append(".(tag)(").append(tag).append(")\n");
             }
 
             rc = sb.length();
@@ -66,14 +66,14 @@ public class FsInode_TAGS extends FsInode {
     public Stat stat() throws ChimeraFsException {
 
         long size = 0;
-        org.dcache.chimera.posix.Stat stat = super.stat();
+        Stat stat = super.stat();
         stat.setNlink(1);
         stat.setMode(0444 | UnixPermission.S_IFREG);
 
         try {
             String[] list = _fs.tags(this);
-            for (int i = 0; i < list.length; i++) {
-                size += (9 + list[i].length());
+            for (String tag : list) {
+                size += (9 + tag.length());
             }
             stat.setSize(size);
 
@@ -88,5 +88,4 @@ public class FsInode_TAGS extends FsInode {
     public int write(long pos, byte[] data, int offset, int len) {
         return -1;
     }
-
 }

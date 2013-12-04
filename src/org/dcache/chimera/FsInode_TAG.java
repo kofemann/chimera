@@ -16,32 +16,31 @@
  */
 package org.dcache.chimera;
 
+import com.google.common.base.Charsets;
 import org.dcache.chimera.posix.Stat;
 
 public class FsInode_TAG extends FsInode {
 
-
     private final String _tag;
 
     /**
-     * @param fs  pointer to 'File System'
-     * @param id  inode id of the
+     *
+     * @param fs pointer to 'File System'
+     * @param id inode id of the
      * @param tag
      */
-
     public FsInode_TAG(FileSystemProvider fs, String id, String tag) {
         super(fs, id, FsInodeType.TAG);
         _tag = tag;
     }
-
 
     @Override
     public boolean exists() {
         boolean rc = false;
         try {
             String[] list = _fs.tags(this);
-            for (int i = 0; i < list.length; i++) {
-                if (list[i].equals(_tag)) {
+            for (String tag : list) {
+                if (tag.equals(_tag)) {
                     rc = true;
                 }
             }
@@ -66,7 +65,7 @@ public class FsInode_TAG extends FsInode {
             throw new FileNotFoundHimeraFsException("tag do not exist");
         }
 
-        org.dcache.chimera.posix.Stat ret = _fs.statTag(this, _tag);
+        Stat ret = _fs.statTag(this, _tag);
         ret.setMode((ret.getMode() & 0000777) | UnixPermission.S_IFREG);
         return ret;
     }
@@ -92,20 +91,24 @@ public class FsInode_TAG extends FsInode {
     }
 
     @Override
-    public String toFullString() {
-        return _fs.getFsId() + ":" + type() + ":" + _id + ":" + _tag;
+    public byte[] getIdentifier() {
+        return byteBase(_tag.getBytes(Charsets.UTF_8));
     }
 
 
     /* (non-Javadoc)
-    * @see org.dcache.chimera.FsInode#equals(java.lang.Object)
-    */
+     * @see org.dcache.chimera.FsInode#equals(java.lang.Object)
+     */
     @Override
     public boolean equals(Object o) {
 
-        if (o == this) return true;
+        if (o == this) {
+            return true;
+        }
 
-        if (!(o instanceof FsInode_TAG)) return false;
+        if (!(o instanceof FsInode_TAG)) {
+            return false;
+        }
 
         return super.equals(o) && _tag.equals(((FsInode_TAG) o)._tag);
     }

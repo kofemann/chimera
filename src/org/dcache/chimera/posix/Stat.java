@@ -16,25 +16,27 @@
  */
 package org.dcache.chimera.posix;
 
-
+import java.sql.Date;
+import java.sql.Time;
 import java.util.Formatter;
 
 import org.dcache.chimera.UnixPermission;
 
 /**
+ *
  * Unix file stat structure abstraction
+ *
  */
 public class Stat {
 
-
-    private int _dev = 0; //
-    private int _ino = 0; //
-    private int _mode = 0; //
-    private int _nlink = 0; //
-    private int _uid = 0; //
-    private int _gid = 0; //
-    private int _rdev = 0; //
-    private long _size = 0; //
+    private int _dev; //
+    private int _ino; //
+    private int _mode; //
+    private int _nlink; //
+    private int _uid; //
+    private int _gid; //
+    private int _rdev; //
+    private long _size; //
 
     /*
      * Opposite to classic Unix, all times in milliseconds
@@ -55,9 +57,7 @@ public class Stat {
      * Creation time.
      */
     private long _crtime;
-
     private int _blksize = 512; //
-
 
     public void setDev(int newDev) {
         _dev = newDev;
@@ -85,8 +85,7 @@ public class Stat {
 
     /**
      * Set number of references (link count)
-     *
-     * @param newNlink
+     * @param newMTime
      */
     public void setNlink(int newNlink) {
         _nlink = newNlink;
@@ -130,7 +129,6 @@ public class Stat {
 
     /**
      * Set change time in milliseconds
-     *
      * @param newCTime
      */
     public void setCTime(long newCTime) {
@@ -138,6 +136,7 @@ public class Stat {
     }
 
     /**
+     *
      * @return change time in milliseconds
      */
     public long getCTime() {
@@ -163,7 +162,6 @@ public class Stat {
 
     /**
      * Set last accessed time in milliseconds
-     *
      * @param newATime
      */
     public void setATime(long newATime) {
@@ -171,6 +169,7 @@ public class Stat {
     }
 
     /**
+     *
      * @return last access time in milliseconds
      */
     public long getATime() {
@@ -179,7 +178,6 @@ public class Stat {
 
     /**
      * Set last modification time in milliseconds
-     *
      * @param newMTime
      */
     public void setMTime(long newMTime) {
@@ -187,6 +185,7 @@ public class Stat {
     }
 
     /**
+     *
      * @return last modification time in milliseconds
      */
     public long getMTime() {
@@ -209,15 +208,16 @@ public class Stat {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-
         try (Formatter formatter = new Formatter(sb)) {
-            formatter.format("%s %8d %6d %6d %6d %s %s",
+            formatter.format(
+                    "%s %8d %6d %6d %6d %s %s",
                     new UnixPermission(this.getMode()),
-                    this.getNlink(), this.getUid(),
+                    this.getNlink(),
+                    this.getUid(),
                     this.getGid(),
                     this.getSize(),
-                    new java.sql.Date(this.getMTime()),
-                    new java.sql.Time(this.getMTime()));
+                    new Date(this.getMTime()),
+                    new Time(this.getMTime()));
             formatter.flush();
         }
 
@@ -302,5 +302,4 @@ public class Stat {
         System.out.println(stat);
 
     }
-
 }

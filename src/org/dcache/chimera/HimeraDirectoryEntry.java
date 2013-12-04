@@ -24,7 +24,6 @@ public class HimeraDirectoryEntry {
     private final Stat _stat;
     private final FsInode _inode;
 
-
     public HimeraDirectoryEntry(String name, FsInode inode) throws ChimeraFsException {
         this(name, inode, inode.statCache());
     }
@@ -46,5 +45,4 @@ public class HimeraDirectoryEntry {
     public Stat getStat() {
         return _stat;
     }
-
 }

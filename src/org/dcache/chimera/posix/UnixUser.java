@@ -18,7 +18,6 @@ package org.dcache.chimera.posix;
 
 import java.util.Arrays;
 
-
 public class UnixUser implements User {
 
     private final int _uid;
@@ -26,16 +25,13 @@ public class UnixUser implements User {
     private final int[] _gids;
     private final String _remoteHost;
 
-
     public UnixUser(int uid) {
         this(uid, -1);
     }
 
-
     public UnixUser(int uid, int gid) {
         this(uid, gid, new int[0]);
     }
-
 
     public UnixUser(int uid, int gid, int[] gids) {
         this(uid, gid, gids, null);
@@ -47,7 +43,6 @@ public class UnixUser implements User {
         _gids = gids == null ? new int[0] : gids.clone();
         _remoteHost = remoteHost;
     }
-
 
     public int getUID() {
         return _uid;
@@ -65,7 +60,6 @@ public class UnixUser implements User {
         return _remoteHost;
     }
 
-
     @Override
     public String toString() {
 
@@ -81,12 +75,12 @@ public class UnixUser implements User {
         return sb.toString();
     }
 
-
+    @Override
     public String principal() {
         return Integer.toString(_uid);
     }
 
-
+    @Override
     public String[] groups() {
 
         int ngroup = _gids == null ? 1 : 1 + _gids.length;
@@ -100,14 +94,13 @@ public class UnixUser implements User {
         return groups;
     }
 
-
+    @Override
     public String role() {
         return this.principal();
     }
 
-
+    @Override
     public String locations() {
         return this.getHost();
     }
-
 }

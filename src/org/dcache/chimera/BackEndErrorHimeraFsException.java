@@ -16,23 +16,16 @@
  */
 package org.dcache.chimera;
 
-
 /**
  * Backend database failure Exception.
  */
 public class BackEndErrorHimeraFsException extends IOHimeraFsException {
 
-
-    /**
-     *
-     */
     private static final long serialVersionUID = -5719825809029114667L;
-
 
     public BackEndErrorHimeraFsException() {
         super("BackEndErrorHimeraFsException");
     }
-
 
     public BackEndErrorHimeraFsException(String msg) {
         super("BackEndErrorHimeraFsException (" + msg + ")");

@@ -16,24 +16,25 @@
  */
 package org.dcache.chimera;
 
+import java.io.File;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-
-import java.io.File;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import org.dcache.chimera.posix.Stat;
 
 import org.dcache.chimera.util.SqlHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * PostgreSQL specific
+ *
+ *
  */
-
 class PgSQLFsSqlDriver extends FsSqlDriver {
 
     /**
@@ -42,24 +43,25 @@ class PgSQLFsSqlDriver extends FsSqlDriver {
     private static final Logger _log = LoggerFactory.getLogger(PgSQLFsSqlDriver.class);
 
     /**
-     * this is a utility class which is issues SQL queries on database
+     *  this is a utility class which is issues SQL queries on database
+     *
      */
     protected PgSQLFsSqlDriver() {
         _log.info("Running PostgreSQL specific Driver");
     }
-
-
     private static final String sqlInode2Path = "SELECT inode2path(?)";
     private static final String sqlPath2Inode = "SELECT path2inode(?, ?)";
+    private static final String sqlPath2Inodes = "SELECT ipnfsid,isize,inlink,itype,imode,iuid,igid,iatime,ictime,imtime from path2inodes(?, ?)";
 
     /**
-     * return tha path accosiated with inode, starting from root of the tree.
-     * in case of hard link, one of the possible paths is retruned
+     *
+     * return the path associated with inode, starting from root of the tree.
+     * in case of hard link, one of the possible paths is returned
      *
      * @param dbConnection
      * @param inode
+     * @throws SQLException
      * @return
-     * @throws java.sql.SQLException
      */
     @Override
     String inode2path(Connection dbConnection, FsInode inode, FsInode startFrom, boolean inclusive) throws SQLException {
@@ -95,20 +97,20 @@ class PgSQLFsSqlDriver extends FsSqlDriver {
      */
     private String normalizePath(String path) {
         File file = new File(path);
-        List<String> elements = new ArrayList<String>();
+        List<String> elements = new ArrayList<>();
         do {
             String fileName = file.getName();
             if (fileName.length() != 0) {
                 /*
-                * skip multiple '/'
-                */
+                 * skip multiple '/'
+                 */
                 elements.add(fileName);
             }
 
             file = file.getParentFile();
         } while (file != null);
 
-        StringBuffer normalizedPath = new StringBuffer();
+        StringBuilder normalizedPath = new StringBuilder();
         if (!elements.isEmpty()) {
             normalizedPath.append(elements.get(elements.size() - 1));
             for (int i = elements.size() - 2; i >= 0; i--) {
@@ -119,18 +121,17 @@ class PgSQLFsSqlDriver extends FsSqlDriver {
         return normalizedPath.toString();
     }
 
-
     /**
      * get inode of given path starting <i>root</i> inode.
-     *
      * @param dbConnection
-     * @param root         staring point
+     * @param root staring point
      * @param path
      * @return inode or null if path does not exist.
      * @throws SQLException
      */
     @Override
-    FsInode path2inode(Connection dbConnection, FsInode root, String path) throws SQLException {
+    FsInode path2inode(Connection dbConnection, FsInode root, String path)
+            throws SQLException, IOHimeraFsException {
         /* Ideally we would use the SQL array type for the second
          * parameter to inject the path elements, however there is no
          * easy way to do that with prepared statements. Hence we use
@@ -163,12 +164,64 @@ class PgSQLFsSqlDriver extends FsSqlDriver {
         }
     }
 
+    @Override
+    List<FsInode>
+        path2inodes(Connection dbConnection, FsInode root, String path)
+        throws SQLException, IOHimeraFsException
+    {
+        /* Ideally we would use the SQL array type for the second
+         * parameter to inject the path elements, however there is no
+         * easy way to do that with prepared statements. Hence we use
+         * a slash delimited string instead. We cannot use
+         * <code>path</code> as that uses the platform specific path
+         * separator.
+         */
+        path = normalizePath(path);
+
+        if (path.length() == 0) {
+            return Collections.singletonList(root);
+        }
+
+        List<FsInode> inodes = new ArrayList<>();
+
+        PreparedStatement st = null;
+        ResultSet result = null;
+        try {
+            st = dbConnection.prepareStatement(sqlPath2Inodes);
+            st.setString(1, root.toString());
+            st.setString(2, path);
+            result = st.executeQuery();
+            while (result.next()) {
+                FsInode inode =
+                    new FsInode(root.getFs(), result.getString("ipnfsid"));
+                Stat stat = new Stat();
+                stat.setSize(result.getLong("isize"));
+                stat.setATime(result.getTimestamp("iatime").getTime());
+                stat.setCTime(result.getTimestamp("ictime").getTime());
+                stat.setMTime(result.getTimestamp("imtime").getTime());
+                stat.setUid(result.getInt("iuid"));
+                stat.setGid(result.getInt("igid"));
+                stat.setMode(result.getInt("imode") | result.getInt("itype"));
+                stat.setNlink(result.getInt("inlink"));
+                stat.setIno((int) inode.id());
+                stat.setDev(17);
+                inode.setStatCache(stat);
+                inodes.add(inode);
+            }
+        } finally {
+            SqlHelper.tryToClose(result);
+            SqlHelper.tryToClose(st);
+        }
+
+        return inodes;
+    }
+
     private final static String sqlCreateEntryInParent = "insert into t_dirs (iparent, iname, ipnfsid) " +
             " (select ? as iparent, ? as iname, ? as ipnfsid " +
             " where not exists (select 1 from t_dirs where iparent=? and iname=?))";
 
     @Override
-    void createEntryInParent(Connection dbConnection, FsInode parent, String name, FsInode inode) throws SQLException, InvalidNameChimeraException {
+    void createEntryInParent(Connection dbConnection, FsInode parent, String name, FsInode inode) throws SQLException {
         PreparedStatement stInserIntoParent = null;
         try {
 
@@ -197,12 +250,11 @@ class PgSQLFsSqlDriver extends FsSqlDriver {
      * @see org.dcache.chimera.FsSqlDriver#copyTags(java.sql.Connection, org.dcache.chimera.FsInode, org.dcache.chimera.FsInode)
      */
     @Override
-    void copyTags(Connection dbConnection, FsInode orign, FsInode destination) throws SQLException {
+    void copyTags(Connection dbConnection, FsInode orign, FsInode destination)
+            throws SQLException {
 
         /*
          * There is a trigger which does it
          */
     }
-
-
 }

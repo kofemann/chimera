@@ -18,30 +18,30 @@ package org.dcache.chimera.posix;
 
 public interface AclHandler {
 
-
     /**
-     * The idea stolen from AFS:
-     * <p/>
+     *
+     *  The idea stolen from AFS:
+     *
      * Lookup, which allows a user to list the contents of the AFS directory,
-     * examine the ACL associated with the directory and access subdirectories.
+     *      examine the ACL associated with the directory and access subdirectories.
      * Insert, which allows a user to add new files or subdirectories to the directory.
      * Delete, which allows a user to remove files and subdirectories from the directory.
      * Administer, which allows a user to change the ACL for the directory.
-     * Users always have this right on their home directory, even if
-     * they accidentally remove themselves from the ACL.
+     *      Users always have this right on their home directory, even if
+     *      they accidentally remove themselves from the ACL.
      * Read, which allows a user to look at the contents of files in a directory
-     * and list files in subdirectories. Files that are to be granted read
-     * access to any user, including the owner, need to have the standard
-     * UNIX "owner read" permission set. This can be done with the command
-     * chmod o+r filename.
+     *      and list files in subdirectories. Files that are to be granted read
+     *      access to any user, including the owner, need to have the standard
+     *      UNIX "owner read" permission set. This can be done with the command
+     *      chmod o+r filename.
      * Write, which allows a user to modify files in a directory. Files that are
-     * to be granted write access to any user, including the owner, need to
-     * have the standard UNIX "owner write" permission set. This can be done
-     * with the chmod o+w filename command.
+     *      to be granted write access to any user, including the owner, need to
+     *      have the standard UNIX "owner write" permission set. This can be done
+     *      with the chmod o+w filename command.
      * Lock, which allows the processor to run programs that need to "flock" files
-     * in the directory. See the UNIX man page for "flock" for more details.
+     *      in the directory. See the UNIX man page for "flock" for more details.
+     *
      */
-
     public static final int ACL_READ = 0;
     public static final int ACL_WRITE = 2;
     public static final int ACL_DELETE = 3;
@@ -52,5 +52,4 @@ public interface AclHandler {
     public static final int ACL_EXECUTE = 8;
 
     public boolean isAllowed(Acl acl, User user, int requsetedAcl);
-
 }

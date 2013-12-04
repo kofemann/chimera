@@ -24,11 +24,10 @@ public class FsInode_ID extends FsInode {
         super(fs, id, FsInodeType.ID);
     }
 
-
     @Override
     public Stat stat() throws ChimeraFsException {
 
-        Stat ret = null;
+        Stat ret;
 
         ret = super.stat();
 
@@ -37,7 +36,6 @@ public class FsInode_ID extends FsInode {
 
         return ret;
     }
-
 
     @Override
     public int write(long pos, byte[] data, int offset, int len) {
@@ -52,7 +50,9 @@ public class FsInode_ID extends FsInode {
         /*
          * are we still inside ?
          */
-        if (pos > b.length) return 0;
+        if (pos > b.length) {
+            return 0;
+        }
 
         int copyLen = Math.min(len, b.length - (int) pos);
         System.arraycopy(b, (int) pos, data, 0, copyLen);
