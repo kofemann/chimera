@@ -404,7 +404,7 @@ public class JdbcFs implements FileSystemProvider {
 
                 dbConnection.setAutoCommit(false);
                 Stat parentStat = _sqlDriver.stat(dbConnection, parent);
-                if (parent == null) {
+                if (parentStat == null) {
                     throw new FileNotFoundHimeraFsException("parent=" + parent.toString());
                 }
 
