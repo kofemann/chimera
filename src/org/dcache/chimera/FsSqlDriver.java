@@ -362,6 +362,7 @@ class FsSqlDriver {
                 ret.setNlink(statResult.getInt("inlink"));
                 ret.setIno((int) inode.id());
                 ret.setDev(17);
+		ret.setRdev(13);
             }
 
         } finally {
