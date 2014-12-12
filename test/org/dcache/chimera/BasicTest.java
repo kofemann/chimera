@@ -515,7 +515,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode inode = new FsInode(_fs, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
          try {
-            _fs.setFileSize(inode, 0);
+	     Stat stat = new Stat();
+	     stat.setSize(1);
+            _fs.setInodeAttributes(inode, 0, stat);
             fail("was able set size for non existing file");
         }catch (FileNotFoundHimeraFsException e) {
             // OK
@@ -528,7 +530,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode inode = new FsInode(_fs, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
          try {
-            _fs.setFileOwner(inode, 3750);
+	     Stat stat = new Stat();
+	     stat.setUid(3750);
+            _fs.setInodeAttributes(inode, 0, stat);
             fail("was able set owner for non existing file");
         }catch (FileNotFoundHimeraFsException e) {
             // OK
@@ -548,7 +552,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
        }
     }
 
-    
+
     @Test
     public void testUpdateChecksumNotExist() throws Exception {
         FsInode inode = new FsInode(_fs, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
@@ -575,7 +579,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
     public void testUpdateChecksumDifferTypes() throws Exception {
         String sum1 = "asum1";
         String sum2 = "asum2";
-        
+
         FsInode base = _rootInode.mkdir("junit");
         FsInode fileInode = base.create("testCreateFile", 0, 0, 0644);
         _fs.setInodeChecksum(fileInode, 1, sum1);
@@ -688,7 +692,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
         long oldCtime = dirInode.stat().getCTime();
 
         TimeUnit.MILLISECONDS.sleep(2);
-        dirInode.setUID(3750);
+	Stat stat = new Stat();
+	stat.setUid(3750);
+        dirInode.setStat(stat);
         assertTrue("The ctime is not updated", dirInode.stat().getCTime() > oldCtime);
     }
 
@@ -699,7 +705,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
         long oldChage = dirInode.stat().getGeneration();
 
         TimeUnit.MILLISECONDS.sleep(2);
-        dirInode.setGID(3750);
+	Stat stat = new Stat();
+	stat.setGid(3750);
+	dirInode.setStat(stat);
         assertTrue("The ctime is not updated", dirInode.stat().getCTime() > oldCtime);
         assertTrue("change count is not updated", dirInode.stat().getGeneration() != oldChage);
     }
@@ -711,7 +719,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
         long oldChage = dirInode.stat().getGeneration();
 
         TimeUnit.MILLISECONDS.sleep(2);
-        dirInode.setMode(0700);
+	Stat stat = new Stat();
+	stat.setMode(0700);
+	dirInode.setStat(stat);
         assertTrue("The ctime is not updated", dirInode.stat().getCTime() > oldCtime);
         assertTrue("change count is not updated", dirInode.stat().getGeneration() != oldChage);
     }
@@ -723,7 +733,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
         long oldChage = dirInode.stat().getGeneration();
 
         TimeUnit.MILLISECONDS.sleep(2);
-        dirInode.setSize(17);
+	Stat stat = new Stat();
+	stat.setSize(17);
+	dirInode.setStat(stat);
         assertTrue("The mtime is not updated", dirInode.stat().getMTime() > oldMtime);
         assertTrue("change count is not updated", dirInode.stat().getGeneration() != oldChage);
     }
@@ -869,7 +881,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
         FsInode base = _rootInode.mkdir("junit");
         _fs.createTag(base, tagName);
         FsInode tagInode = new FsInode_TAG(_fs, base.toString(), tagName);
-        tagInode.setUID(1);
+	Stat stat = new Stat();
+	stat.setUid(1);
+	tagInode.setStat(stat);
 
         assertEquals(1, tagInode.stat().getUid());
     }
@@ -881,7 +895,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
         FsInode base = _rootInode.mkdir("junit");
         _fs.createTag(base, tagName);
         FsInode tagInode = new FsInode_TAG(_fs, base.toString(), tagName);
-        tagInode.setGID(1);
+	Stat stat = new Stat();
+	stat.setGid(1);
+	tagInode.setStat(stat);
 
         assertEquals(1, tagInode.stat().getGid());
     }
@@ -893,7 +909,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
         FsInode base = _rootInode.mkdir("junit");
         _fs.createTag(base, tagName);
         FsInode tagInode = new FsInode_TAG(_fs, base.toString(), tagName);
-        tagInode.setMode(0007);
+	Stat stat = new Stat();
+	stat.setMode(0007);
+	tagInode.setStat(stat);
 
         assertEquals(0007 | UnixPermission.S_IFREG, tagInode.stat().getMode());
     }
@@ -959,7 +977,8 @@ public class BasicTest extends ChimeraTestCaseHelper {
     @Test
     public void testGenerationOnReaddir() throws Exception {
        FsInode inode = _rootInode.mkdir("junit");
-       inode.setUID(1); // to bump generation
+       Stat stat = new Stat();
+       inode.setStat(stat); // to bump generation
        try(DirectoryStreamB<HimeraDirectoryEntry> dirStream = _fs.newDirectoryStream(_rootInode)) {
 
            for(HimeraDirectoryEntry entry: dirStream) {
