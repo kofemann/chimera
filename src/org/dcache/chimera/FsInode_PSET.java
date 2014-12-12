@@ -23,6 +23,12 @@ import org.dcache.chimera.posix.Stat;
 
 public class FsInode_PSET extends FsInode {
 
+    private static final String SIZE = "size";
+    private static final String IO = "io";
+    private static final String ONLN = "bringonline";
+    private static final String STG = "stage";
+    private static final String PIN = "pin";
+
     private final String[] _args;
 
     public FsInode_PSET(FileSystemProvider fs, String id, String[] args) {
@@ -41,53 +47,35 @@ public class FsInode_PSET extends FsInode {
     }
 
     @Override
-    public void setATime(long atime) throws ChimeraFsException {
-    }
-
-    @Override
-    public void setCTime(long ctime) throws ChimeraFsException {
-    }
-
-    @Override
-    public void setGID(int gid) throws ChimeraFsException {
-    }
-
-    @Override
-    public void setMode(int mode) throws ChimeraFsException {
-    }
-
-    @Override
-    public void setMTime(long mtime) throws ChimeraFsException {
-
-        if (_args[0].equals("size")) {
-            try {
-                _fs.setFileSize(this, Long.parseLong(_args[1]));
-            } catch (NumberFormatException ignored) {
-                // Bad values ignored
-            }
-            super.setMTime(mtime);
-            return;
-        }
-
-        if (_args[0].equals("io")) {
-            _fs.setInodeIo(this, _args[1].equals("on"));
-        }
-    }
-
-    @Override
-    public void setSize(long size) throws ChimeraFsException {
-    }
-
-    @Override
-    public void setUID(int uid) throws ChimeraFsException {
-    }
-
-    @Override
     public void setStat(Stat newStat) {
-        try {
-         this.setMTime(newStat.getMTime());
-        } catch (ChimeraFsException ignored) {
-        }
+	try {
+	    if (newStat.isDefined(Stat.StatAttributes.MTIME)) {
+		switch (_args[0]) {
+		    case SIZE:
+			Stat s = new Stat();
+			try {
+			    s.setSize(Long.parseLong(_args[1]));
+			} catch (NumberFormatException ignored) {
+			    // Bad values ignored
+			}
+			s.setMTime(newStat.getMTime());
+			_fs.setInodeAttributes(this, 0, s);
+			break;
+		    case IO:
+			_fs.setInodeIo(this, _args[1].equals("on"));
+			break;
+		    case ONLN:
+		    case STG:
+		    case PIN:
+			handlePinRequest();
+			break;
+		    default:
+			break;
+		}
+
+	    }
+	} catch (ChimeraFsException ignored) {
+	}
     }
 
     @Override
@@ -144,5 +132,9 @@ public class FsInode_PSET extends FsInode {
     @Override
     public int hashCode() {
         return 17;
+    }
+
+    private void handlePinRequest() throws ChimeraFsException {
+	// nop
     }
 }
