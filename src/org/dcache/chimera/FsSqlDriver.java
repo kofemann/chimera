@@ -16,8 +16,6 @@
  */
 package org.dcache.chimera;
 
-import com.google.common.collect.Lists;
-
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -27,8 +25,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
 
@@ -2368,14 +2368,15 @@ class FsSqlDriver {
         throws SQLException, IOHimeraFsException
     {
         File pathFile = new File(path);
-        List<String> pathElements = new ArrayList<>();
+        // Path elements in reverse order.
+        Deque<String> pathElements = new ArrayDeque<>();
 
         do {
             String fileName = pathFile.getName();
             if (fileName.length() != 0) {
                 /* Skip multiple file separators.
                  */
-                pathElements.add(pathFile.getName());
+                pathElements.addFirst(pathFile.getName());
             }
             pathFile = pathFile.getParentFile();
         } while (pathFile != null);
@@ -2386,9 +2387,7 @@ class FsSqlDriver {
         List<FsInode> inodes = new ArrayList<>(pathElements.size() + 1);
         inodes.add(root);
 
-        /* Path elements are in reverse order.
-         */
-        for (String f: Lists.reverse(pathElements)) {
+        for (String f: pathElements) {
             inode = inodeOf(dbConnection, parentInode, f);
 
             if (inode == null) {
