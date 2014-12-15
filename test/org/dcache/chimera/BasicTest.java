@@ -147,6 +147,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         base.create("testCreateDir", 0, 0, 0644);
         Stat stat = base.stat();
+	TimeUnit.MILLISECONDS.sleep(2);
 
         base.remove("testCreateDir");
 
@@ -511,7 +512,6 @@ public class BasicTest extends ChimeraTestCaseHelper {
         _fs.addInodeLocation(fileInode, StorageGenericLocation.DISK, "/dev/null");
     }
 
-    @Ignore
     @Test
     public void testSetSizeNotExist() throws Exception {
 
@@ -526,7 +526,6 @@ public class BasicTest extends ChimeraTestCaseHelper {
         }
     }
 
-    @Ignore
     @Test
     public void testChowneNotExist() throws Exception {
 
@@ -730,16 +729,16 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
     @Test
     public void testUpdateMtimeOnSetSize() throws Exception {
-        FsInode dirInode = _rootInode.mkdir("testDir", 0, 0, 0755);
-        long oldMtime = dirInode.stat().getMTime();
-        long oldChage = dirInode.stat().getGeneration();
+        FsInode inode = _rootInode.create("file1", 0, 0, 0755);
+        long oldMtime = inode.stat().getMTime();
+        long oldChage = inode.stat().getGeneration();
 
         TimeUnit.MILLISECONDS.sleep(2);
 	Stat stat = new Stat();
 	stat.setSize(17);
-	dirInode.setStat(stat);
-        assertTrue("The mtime is not updated", dirInode.stat().getMTime() > oldMtime);
-        assertTrue("change count is not updated", dirInode.stat().getGeneration() != oldChage);
+	inode.setStat(stat);
+        assertTrue("The mtime is not updated", inode.stat().getMTime() > oldMtime);
+        assertTrue("change count is not updated", inode.stat().getGeneration() != oldChage);
     }
 
     @Test
@@ -1012,5 +1011,22 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode base = _rootInode.mkdir("dir1");
         base.remove("..");
+    }
+
+    @Test(expected = IsDirChimeraException.class)
+    public void testSetSizeOnDir() throws Exception {
+	FsInode dir = _rootInode.mkdir("dir1");
+	Stat stat = new Stat();
+	stat.setSize(1);
+	dir.setStat(stat);
+    }
+
+    @Test(expected = InvalidArgumentChimeraException.class)
+    public void testSetSizeOnNonFile() throws Exception {
+	FsInode dir = _rootInode.mkdir("dir1");
+	FsInode link = _rootInode.createLink("link1", 1, 1, 0777, "dir1".getBytes(StandardCharsets.UTF_8));
+	Stat stat = new Stat();
+	stat.setSize(1);
+	link.setStat(stat);
     }
 }

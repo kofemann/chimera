@@ -970,13 +970,13 @@ class FsSqlDriver {
         }
     }
 
-    void setInodeAttributes(Connection dbConnection, FsInode inode, int level, Stat stat) throws SQLException {
+    boolean setInodeAttributes(Connection dbConnection, FsInode inode, int level, Stat stat) throws SQLException {
 
         PreparedStatement ps = null;
 
         try {
             ps = generateAttributeUpdateStatement(dbConnection, inode, stat, level);
-            ps.executeUpdate();
+            return ps.executeUpdate() != 0;
         } finally {
             SqlHelper.tryToClose(ps);
         }
@@ -2394,7 +2394,8 @@ class FsSqlDriver {
         final String attrUpdatePrefix = level == 0 ?
 		"UPDATE t_inodes SET ictime=?,igeneration=igeneration+1" :
 		"UPDATE t_level_" + level + " SET ictime=?";
-        final String attrUpdateSuffix = " WHERE ipnfsid=?";
+        final String attrUpdateSuffix = (level == 0 && stat.isDefined(Stat.StatAttributes.SIZE)) ?
+		" WHERE ipnfsid=? AND itype = " + UnixPermission.S_IFREG : " WHERE ipnfsid=?";
 
         StringBuilder sb = new StringBuilder(128);
         long ctime = stat.isDefined(Stat.StatAttributes.CTIME) ? stat.getCTime()

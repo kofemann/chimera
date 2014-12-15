@@ -1226,7 +1226,22 @@ public class JdbcFs implements FileSystemProvider {
             switch (inode.type()) {
                 case INODE:
 		case PSET:
-                    _sqlDriver.setInodeAttributes(dbConnection, inode, level, stat);
+                    boolean applied = _sqlDriver.setInodeAttributes(dbConnection, inode, level, stat);
+                    if (!applied) {
+			/**
+			 * there are two cases why update can fail:
+			 *   1. inode does not exists
+			 *   2. we try to set a size on a non file object
+			 */
+			Stat s = _sqlDriver.stat(dbConnection, inode);
+			if (s == null) {
+			    throw new FileNotFoundHimeraFsException();
+			}
+			if ((s.getMode() & UnixPermission.F_TYPE) == UnixPermission.S_IFDIR) {
+			    throw new IsDirChimeraException(inode);
+			}
+			throw new InvalidArgumentChimeraException();
+                    }
                     break;
                 case TAG:
 		    if (stat.isDefined(Stat.StatAttributes.MODE)) {
