@@ -1,6 +1,6 @@
 package org.dcache.chimera;
 
-import com.google.common.base.Charsets;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -310,7 +310,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode linkBase = _rootInode.mkdir("links");
 
-        _fs.createLink(linkBase, "file123", 0, 0, 0644, "/files/file123".getBytes(Charsets.UTF_8));
+        _fs.createLink(linkBase, "file123", 0, 0, 0644, "/files/file123".getBytes(StandardCharsets.UTF_8));
         _fs.remove("/links/file123");
     }
 
@@ -321,7 +321,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         FsInode linkBase = _rootInode.mkdir("links");
         FsInode fileInode = fileBase.create("file123", 0, 0, 0644);
 
-        _fs.createLink(linkBase, "file123",  0, 0, 0644, "/files/file123".getBytes(Charsets.UTF_8));
+        _fs.createLink(linkBase, "file123",  0, 0, 0644, "/files/file123".getBytes(StandardCharsets.UTF_8));
         _fs.remove("/links/file123");
 
         assertTrue("original file is gone!", fileInode.exists());
