@@ -83,9 +83,10 @@
     -->
     <dependencies>
         <dependency>
-            <groupId>com.jolbox</groupId>
-            <artifactId>bonecp</artifactId>
-            <version>0.7.1.RELEASE</version>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP-java6</artifactId>
+            <version>2.2.5</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -101,7 +102,7 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <version>1.4.181</version>
+            <version>1.4.182</version>
             <scope>test</scope>
         </dependency>
         <dependency>

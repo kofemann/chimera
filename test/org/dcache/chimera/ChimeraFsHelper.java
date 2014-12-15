@@ -1,26 +1,24 @@
 package org.dcache.chimera;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
 import java.sql.SQLException;
-
-import com.jolbox.bonecp.BoneCPDataSource;
 
 public class ChimeraFsHelper {
 
     private ChimeraFsHelper() {};
 
-    public static FileSystemProvider getFileSystemProvider(String url, String drv, String user,
-            String pass, String dialect)
+    public static HikariDataSource getDataSource(String url, String drv, String user, String pass)
             throws IOException, ClassNotFoundException, SQLException {
 
-        BoneCPDataSource ds = new BoneCPDataSource();
-        ds.setJdbcUrl(url);
-        ds.setUsername(user);
-        ds.setPassword(pass);
-        ds.setDriverClass(drv);
-        ds.setMaxConnectionsPerPartition(2);
-        ds.setPartitionCount(1);
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(url);
+        config.setUsername(user);
+        config.setPassword(pass);
+        config.setDriverClassName(drv);
+        config.setMaximumPoolSize(3);
 
-        return new JdbcFs(ds, dialect);
+        return new HikariDataSource(config);
     }
 }

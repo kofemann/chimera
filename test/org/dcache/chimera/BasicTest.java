@@ -49,6 +49,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode base = _rootInode.mkdir("junit");
         Stat stat = base.stat();
+        TimeUnit.MILLISECONDS.sleep(2);
 
         FsInode newFile = base.create("testCreateFile", 0, 0, 0644);
 
@@ -130,6 +131,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         base.create("testCreateFile", 0, 0, 0644);
         Stat stat = base.stat();
+        TimeUnit.MILLISECONDS.sleep(2);
 
         base.remove("testCreateFile");
 
