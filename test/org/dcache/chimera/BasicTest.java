@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import org.dcache.acl.ACE;
 import org.dcache.acl.enums.AccessMask;
 import org.dcache.acl.enums.AceType;
@@ -49,20 +48,15 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode base = _rootInode.mkdir("junit");
         Stat stat = base.stat();
-        TimeUnit.MILLISECONDS.sleep(2);
 
         FsInode newFile = base.create("testCreateFile", 0, 0, 0644);
 
         assertEquals("crete file have to incrise parent's nlink count by one",
                 base.stat().getNlink(), stat.getNlink() + 1);
 
-        assertTrue("crete file have to update parent's mtime", base.stat()
-                .getMTime() > stat.getMTime());
-
+        assertTrue("crete file have to update parent's mtime", base.stat().getMTime() >= stat.getMTime());
         assertTrue("change count is not updated", stat.getGeneration() != base.stat().getGeneration());
-
-        assertEquals("new file should have link count equal to two", newFile
-                .stat().getNlink(), 1);
+        assertEquals("new file should have link count equal to two", newFile.stat().getNlink(), 1);
     }
 
     @Test
@@ -131,12 +125,11 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         base.create("testCreateFile", 0, 0, 0644);
         Stat stat = base.stat();
-        TimeUnit.MILLISECONDS.sleep(2);
 
         base.remove("testCreateFile");
-
         assertEquals("remove have to decrease parents link count",base.stat().getNlink(), stat.getNlink() - 1 );
-        assertFalse("remove have to update parent's mtime", stat.getMTime() == base.stat().getMTime() );
+        assertTrue("remove have to update parent's mtime", base.stat().getMTime() >= stat.getMTime());
+        assertTrue("remove have to update parent's generation", stat.getGeneration() != base.stat().getGeneration() );
 
     }
 
@@ -145,14 +138,15 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode base = _rootInode.mkdir("junit");
 
-        base.create("testCreateDir", 0, 0, 0644);
+        FsInode fileInode = base.create("testCreateDir", 0, 0, 0644);
+        long oldMTime = fileInode.stat().getMTime();
         Stat stat = base.stat();
-	TimeUnit.MILLISECONDS.sleep(2);
 
         base.remove("testCreateDir");
 
         assertEquals("remove have to decrease parents link count",base.stat().getNlink(), stat.getNlink() - 1 );
-        assertFalse("remove have to update parent's mtime", stat.getMTime() == base.stat().getMTime() );
+        assertTrue("remove have to update parent's mtime", base.stat().getMTime()  >= oldMTime);
+        assertTrue("remove have to update parent's generation", stat.getGeneration() != base.stat().getGeneration() );
 
     }
 
@@ -691,12 +685,13 @@ public class BasicTest extends ChimeraTestCaseHelper {
     public void testUpdateCtimeOnSetOwner() throws Exception {
         FsInode dirInode = _rootInode.mkdir("testDir", 0, 0, 0755);
         long oldCtime = dirInode.stat().getCTime();
+        long oldChange = dirInode.stat().getGeneration();
 
-        TimeUnit.MILLISECONDS.sleep(2);
 	Stat stat = new Stat();
 	stat.setUid(3750);
         dirInode.setStat(stat);
-        assertTrue("The ctime is not updated", dirInode.stat().getCTime() > oldCtime);
+        assertTrue("The ctime is not updated", dirInode.stat().getCTime() >= oldCtime);
+        assertTrue("set owner have to update parent's generation", oldChange != dirInode.stat().getGeneration() );
     }
 
     @Test
@@ -705,11 +700,10 @@ public class BasicTest extends ChimeraTestCaseHelper {
         long oldCtime = dirInode.stat().getCTime();
         long oldChage = dirInode.stat().getGeneration();
 
-        TimeUnit.MILLISECONDS.sleep(2);
 	Stat stat = new Stat();
 	stat.setGid(3750);
 	dirInode.setStat(stat);
-        assertTrue("The ctime is not updated", dirInode.stat().getCTime() > oldCtime);
+        assertTrue("The ctime is not updated", dirInode.stat().getCTime() >= oldCtime);
         assertTrue("change count is not updated", dirInode.stat().getGeneration() != oldChage);
     }
 
@@ -719,11 +713,10 @@ public class BasicTest extends ChimeraTestCaseHelper {
         long oldCtime = dirInode.stat().getCTime();
         long oldChage = dirInode.stat().getGeneration();
 
-        TimeUnit.MILLISECONDS.sleep(2);
 	Stat stat = new Stat();
 	stat.setMode(0700);
 	dirInode.setStat(stat);
-        assertTrue("The ctime is not updated", dirInode.stat().getCTime() > oldCtime);
+        assertTrue("The ctime is not updated", dirInode.stat().getCTime() >= oldCtime);
         assertTrue("change count is not updated", dirInode.stat().getGeneration() != oldChage);
     }
 
@@ -733,11 +726,10 @@ public class BasicTest extends ChimeraTestCaseHelper {
         long oldMtime = inode.stat().getMTime();
         long oldChage = inode.stat().getGeneration();
 
-        TimeUnit.MILLISECONDS.sleep(2);
 	Stat stat = new Stat();
 	stat.setSize(17);
 	inode.setStat(stat);
-        assertTrue("The mtime is not updated", inode.stat().getMTime() > oldMtime);
+        assertTrue("The mtime is not updated", inode.stat().getMTime() >= oldMtime);
         assertTrue("change count is not updated", inode.stat().getGeneration() != oldChage);
     }
 
@@ -949,13 +941,10 @@ public class BasicTest extends ChimeraTestCaseHelper {
         tagInode.write(0, data1, 0, data1.length);
         Stat statBefore = tagInode.stat();
 
-        // unshure that time in millis is changed
-        TimeUnit.MICROSECONDS.sleep(2);
-
         tagInode.write(0, data2, 0, data2.length);
         Stat statAfter = tagInode.stat();
 
-        assertTrue(statBefore.getMTime() != statAfter.getMTime());
+        assertTrue(statAfter.getMTime() >= statBefore.getMTime());
     }
 
     @Test
