@@ -120,7 +120,7 @@
     </distributionManagement>
     <repositories>
         <repository>
-            <id>dccache.org</id>
+            <id>dcache.org</id>
             <url>https://download.dcache.org/nexus/content/groups/public/</url>
         </repository>
     </repositories>
