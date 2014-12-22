@@ -246,7 +246,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
             try {
                 _waitingToStart.await();
                 _testRoot.create(Thread.currentThread().getName(), 0, 0, 0644);
-            }catch(Exception hfe) {
+            }catch(InterruptedException | ChimeraFsException hfe) {
                 // FIXME
             }finally{
                 _ready.countDown();
@@ -737,7 +737,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
     public void testSetAcl() throws Exception {
         FsInode dirInode = _rootInode.mkdir("testDir", 0, 0, 0755);
 
-        List<ACE> aces = new ArrayList<ACE>();
+        List<ACE> aces = new ArrayList<>();
 
         aces.add(new ACE(AceType.ACCESS_DENIED_ACE_TYPE, 0,
                 AccessMask.ADD_SUBDIRECTORY.getValue(), Who.USER, 1001,
@@ -756,7 +756,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
     public void testReSetAcl() throws Exception {
         FsInode dirInode = _rootInode.mkdir("testDir", 0, 0, 0755);
 
-        List<ACE> aces = new ArrayList<ACE>();
+        List<ACE> aces = new ArrayList<>();
 
         aces.add(new ACE(AceType.ACCESS_DENIED_ACE_TYPE, 0,
                 AccessMask.ADD_SUBDIRECTORY.getValue(), Who.USER, 1001,
@@ -767,7 +767,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
                 ACE.DEFAULT_ADDRESS_MSK));
 
         _fs.setACL(dirInode, aces);
-        _fs.setACL(dirInode, new ArrayList<ACE>());
+        _fs.setACL(dirInode, new ArrayList<>());
         assertTrue(_fs.getACL(dirInode).isEmpty());
     }
 

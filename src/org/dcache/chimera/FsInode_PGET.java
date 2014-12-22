@@ -20,7 +20,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
 
 import org.dcache.chimera.posix.Stat;
 
@@ -116,9 +115,9 @@ public class FsInode_PGET extends FsInode {
             sb.append(_name).append(':');
         }
 
-        for (String arg : _metadata.keySet()) {
+        _metadata.keySet().stream().forEach((arg) -> {
             sb.append(arg).append(':');
-        }
+        });
 
         return byteBase(sb.toString().getBytes(StandardCharsets.UTF_8));
     }
@@ -130,12 +129,12 @@ public class FsInode_PGET extends FsInode {
 
     private synchronized String metadata() {
         StringBuilder builder = new StringBuilder();
-        for (Entry<String, String> entry: _metadata.entrySet()) {
+        _metadata.entrySet().stream().forEach((entry) -> {
             builder.append(entry.getKey())
-                   .append("=")
-                   .append(entry.getValue())
-                   .append(NEWLINE);
-        }
+                    .append("=")
+                    .append(entry.getValue())
+                    .append(NEWLINE);
+        });
         return builder.toString();
     }
 }

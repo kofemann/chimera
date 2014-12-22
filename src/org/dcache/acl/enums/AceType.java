@@ -35,8 +35,8 @@ public enum AceType {
 
     private final String _abbreviation;
 
-    private static final Map<String, AceType> _valuesByAbb = new HashMap<String, AceType>();
-    private static final Map<Integer, AceType> _valuesByValue = new HashMap<Integer, AceType>();
+    private static final Map<String, AceType> _valuesByAbb = new HashMap<>();
+    private static final Map<Integer, AceType> _valuesByValue = new HashMap<>();
     static {
         for(AceType aceType: AceType.values()){
             _valuesByAbb.put(aceType.getAbbreviation(), aceType);

@@ -26,7 +26,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /*
- * 
+ *
  */
 public class CacheMap<K, V> {
 
@@ -35,7 +35,7 @@ public class CacheMap<K, V> {
      */
     private static final long serialVersionUID = -446090383728952825L;
     private static final Logger _log = LoggerFactory.getLogger(CacheMap.class);
-    private final Map<K, V> _elements = new ConcurrentHashMap<K, V>();
+    private final Map<K, V> _elements = new ConcurrentHashMap<>();
     private final ScheduledExecutorService _cleaner = new ScheduledThreadPoolExecutor(2);
 
     /**
@@ -50,11 +50,9 @@ public class CacheMap<K, V> {
     public V put(final K key, final V value, long timeout) {
 
         V ce = _elements.put(key, value);
-        _cleaner.schedule(new Runnable() {
-            public void run() {
-                if (_elements.remove(key) != null) {
-                    _log.debug("removing cache value for key" + key);
-                }
+        _cleaner.schedule(() -> {
+            if (_elements.remove(key) != null) {
+                _log.debug("removing cache value for key" + key);
             }
         }, timeout, TimeUnit.SECONDS);
 

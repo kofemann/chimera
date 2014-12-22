@@ -100,7 +100,7 @@ public enum AccessMask {
 
     // ALL ALLOWED: 11111111111111111111 = FFFFF = 1048575
 
-    private final static Map<Character, AccessMask> _values = new HashMap<Character, AccessMask>();
+    private final static Map<Character, AccessMask> _values = new HashMap<>();
     static {
         for(AccessMask mask: AccessMask.values()) {
             _values.put(mask.getLabel(), mask);
