@@ -1088,8 +1088,6 @@ public class JdbcFs implements FileSystemProvider {
             tryToClose(dbConnection);
         }
 
-        inode.setParent(parent);
-
         return inode;
     }
 

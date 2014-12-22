@@ -498,6 +498,7 @@ class FsSqlDriver {
 
         if (id != null) {
             inode = new FsInode(parent.getFs(), id);
+            inode.setParent(parent);
         }
         return inode;
     }
