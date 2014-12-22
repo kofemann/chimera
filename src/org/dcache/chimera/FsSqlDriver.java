@@ -1555,25 +1555,27 @@ class FsSqlDriver {
 
             if (rs.next()) {
 
-                InputStream in = rs.getBinaryStream("ivalue");
                 /*
                  * some databases (hsqldb in particular) fill a full record for
                  * BLOBs and on read reads a full record, which is not what we expect.
                  *
                  */
-                int size = Math.min(len, (int) rs.getLong("isize"));
-
-                while (count < size) {
-
-                    int c = in.read();
-                    if (c == -1) {
-                        break;
+                try (InputStream in = rs.getBinaryStream("ivalue")) {
+                    /*
+                    * some databases (hsqldb in particular) fill a full record for
+                    * BLOBs and on read reads a full record, which is not what we expect.
+                    *
+                    */
+                    int size = Math.min(len, (int) rs.getLong("isize"));
+                    while (count < size) {
+                        int c = in.read();
+                        if (c == -1) {
+                            break;
+                        }
+                        data[offset + count] = (byte) c;
+                        ++count;
                     }
-
-                    data[offset + count] = (byte) c;
-                    ++count;
                 }
-                in.close();
             }
 
         } finally {
