@@ -76,23 +76,4 @@ public class CacheMap<K, V> {
     public void clear() {
         _elements.clear();
     }
-
-    public static void main(String[] args) {
-
-        try {
-            CacheMap<String, String> map = new CacheMap<String, String>();
-
-            map.put("o1", "o1", 10);
-
-            boolean b1 = map.isEmpty();
-            Thread.sleep(11000);
-
-            boolean b2 = map.isEmpty();
-            System.out.println("b1 = " + b1);
-            System.out.println("b2 = " + b2);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
 }
