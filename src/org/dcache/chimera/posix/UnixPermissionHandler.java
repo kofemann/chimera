@@ -21,8 +21,8 @@ import org.slf4j.LoggerFactory;
 
 public class UnixPermissionHandler implements AclHandler {
 
-    private static Logger _log = LoggerFactory.getLogger(UnixPermissionHandler.class);
-    private static UnixPermissionHandler HANDLER = new UnixPermissionHandler();
+    private final static Logger _log = LoggerFactory.getLogger(UnixPermissionHandler.class);
+    private final static UnixPermissionHandler HANDLER = new UnixPermissionHandler();
 
     private UnixPermissionHandler() {
     }
