@@ -9,7 +9,7 @@
 
     <groupId>org.dcache.chimera</groupId>
     <artifactId>chimera-core</artifactId>
-    <version>0.0.14-SNAPSHOT</version>
+    <version>0.0.15-SNAPSHOT</version>
     <name>RDBMS based file system implementation</name>
     <packaging>jar</packaging>
     <url>http://www.dCache.ORG</url>
