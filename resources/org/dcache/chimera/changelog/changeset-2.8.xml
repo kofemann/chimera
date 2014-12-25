@@ -11,7 +11,7 @@
         </addColumn>
     </changeSet>
 
-    <changeSet author="tigran" id="15">
+    <changeSet author="tigran" id="15.1">
         <sql stripComments="true">
             UPDATE t_inodes SET icrtime = (
                 SELECT
@@ -20,7 +20,7 @@
                         WHEN imtime &lt;= ictime and imtime &lt;= iatime THEN imtime
                         ELSE iatime
                     END AS icrtime
-                FROM t_inodes AS p WHERE p.ipnfsid = t_inodes.ipnfsid
+                FROM t_inodes p WHERE p.ipnfsid = t_inodes.ipnfsid
             )
         </sql>
     </changeSet>
