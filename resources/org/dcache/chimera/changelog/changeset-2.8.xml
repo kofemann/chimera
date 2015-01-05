@@ -5,24 +5,30 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.0.xsd">
 
-    <changeSet author="tigran" id="14">
-        <addColumn tableName="t_inodes">
-            <column name="icrtime" type="DATETIME" remarks="file/directory creation timestamp"/>
-        </addColumn>
+    <changeSet author="tigran" id="14.1">
+        <!-- NOP -->
     </changeSet>
 
-    <changeSet author="tigran" id="15.1">
-        <sql stripComments="true">
-            UPDATE t_inodes SET icrtime = (
-                SELECT
-                    CASE
-                        WHEN ictime &lt;= imtime and ictime &lt;= iatime THEN ictime
-                        WHEN imtime &lt;= ictime and imtime &lt;= iatime THEN imtime
-                        ELSE iatime
-                    END AS icrtime
-                FROM t_inodes p WHERE p.ipnfsid = t_inodes.ipnfsid
-            )
-        </sql>
+    <changeSet author="tigran" id="15.3">
+        <preConditions onFail="MARK_RAN" onFailMessage="Not adding icrtime column as it already exists (this is not an error)">
+            <not>
+                <columnExists tableName="t_inodes" columnName="icrtime"/>
+            </not>
+        </preConditions>
+
+        <comment>Add creation time column</comment>
+
+        <addColumn tableName="t_inodes">
+            <column name="icrtime" type="DATETIME" remarks="file/directory creation timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <sql>UPDATE t_inodes SET icrtime = LEAST(icrtime, imtime, ictime, iatime)</sql>
+
+        <rollback>
+            <dropColumn tableName="t_inodes" columnName="icrtime"/>
+        </rollback>
     </changeSet>
 
     <changeSet author="tigran" id="16">
