@@ -1018,4 +1018,14 @@ public class BasicTest extends ChimeraTestCaseHelper {
 	stat.setSize(1);
 	link.setStat(stat);
     }
+
+    @Test
+    public void testChangeDirOwner() throws Exception {
+        FsInode dir = _rootInode.mkdir("dir1");
+
+        Stat stat = new Stat();
+        stat.setUid(1);
+        stat.setGid(1);
+        dir.setStat(stat);
+    }
 }
