@@ -1004,7 +1004,7 @@ class FsSqlDriver {
 
             rs = stIsIoEnabled.executeQuery();
             if (rs.next()) {
-                ioEnabled = rs.getInt("iio") == 1 ? true : false;
+                ioEnabled = rs.getInt("iio") == 1;
             }
 
         } finally {
@@ -1136,13 +1136,14 @@ class FsSqlDriver {
                 }
 
                 in.skip(beginIndex);
-                int c;
-                while (((c = in.read()) != -1) && (count < len)) {
+                while (count < len) {
+                    int c = in.read();
+                    if (c == -1) {
+                        break;
+                    }
                     data[offset + count] = (byte) c;
                     ++count;
                 }
-                //count = in.available() > len ? len : in.available() ;
-                //in.read(data, offset, count);
             }
 
         } catch (IOException e) {
