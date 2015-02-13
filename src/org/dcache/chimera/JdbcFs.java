@@ -172,8 +172,7 @@ public class JdbcFs implements FileSystemProvider {
         } catch (SQLException se) {
             tryToRollback(dbConnection);
 
-            String sqlState = se.getSQLState();
-            if (_sqlDriver.isDuplicatedKeyError(sqlState)) {
+            if (_sqlDriver.isDuplicatedKeyError(se)) {
                 throw new FileExistsChimeraFsException();
             }
             _log.error("createLink ", se);
@@ -222,8 +221,7 @@ public class JdbcFs implements FileSystemProvider {
         } catch (SQLException e) {
             tryToRollback(dbConnection);
 
-            String sqlState = e.getSQLState();
-            if(_sqlDriver.isDuplicatedKeyError(sqlState)) {
+            if(_sqlDriver.isDuplicatedKeyError(e)) {
                 throw new FileExistsChimeraFsException();
             }
             throw new IOHimeraFsException(e.getMessage());
@@ -300,11 +298,7 @@ public class JdbcFs implements FileSystemProvider {
                         dbConnection.commit();
 
                     } catch (SQLException se) {
-                        // according to SQL-92 standard, class-code 23 is
-                        // Constraint Violation, in our case
-                        // same pool for the same file,
-                        // which is OK
-                        if (se.getSQLState().startsWith("23")) {
+                        if (_sqlDriver.isDuplicatedKeyError(se)) {
                             throw new FileExistsChimeraFsException(name);
                         }
                         _log.error("create File: ", se);
@@ -329,13 +323,11 @@ public class JdbcFs implements FileSystemProvider {
                             dbConnection.commit();
 
                         } catch (SQLException se) {
-                            // according to SQL-92 standard, class-code 23 is
-                            // Constraint Violation, in our case file exist
-                            if (se.getSQLState().startsWith("23")) {
+                            tryToRollback(dbConnection);
+                            if (_sqlDriver.isDuplicatedKeyError(se)) {
                                 throw new FileExistsChimeraFsException(name);
                             }
                             _log.error("create File: ", se);
-                            tryToRollback(dbConnection);
                         }
                     }
                 }
@@ -367,11 +359,7 @@ public class JdbcFs implements FileSystemProvider {
             } catch (SQLException se) {
 
                 tryToRollback(dbConnection);
-
-                if (se.getSQLState().startsWith("23")) {
-                    // according to SQL-92 standard, class-code 23 is
-                    // Constraint Violation, in our case
-                    // file exist
+                if (_sqlDriver.isDuplicatedKeyError(se)) {
                     throw new FileExistsChimeraFsException();
                 }
                 _log.error("create File: ", se);
@@ -434,11 +422,7 @@ public class JdbcFs implements FileSystemProvider {
         } catch (SQLException se) {
 
             tryToRollback(dbConnection);
-
-            if (se.getSQLState().startsWith("23")) {
-                // according to SQL-92 standard, class-code 23 is
-                // Constraint Violation, in our case
-                // file exist
+            if (_sqlDriver.isDuplicatedKeyError(se)) {
                 throw new FileExistsChimeraFsException();
             }
             _log.error("create File: ", se);
@@ -725,12 +709,7 @@ public class JdbcFs implements FileSystemProvider {
         } catch (SQLException se) {
 
             tryToRollback(dbConnection);
-
-            // according to SQL-92 standard, class-code 23 is
-            // Constraint Violation, in our case
-            // same pool for the same file,
-            // which is OK
-            if (se.getSQLState().startsWith("23")) {
+            if (_sqlDriver.isDuplicatedKeyError(se)) {
                 throw new FileExistsChimeraFsException(name);
             }
             _log.error("mkdir", se);
@@ -1297,10 +1276,9 @@ public class JdbcFs implements FileSystemProvider {
             _sqlDriver.write(dbConnection, inode, level, beginIndex, data, offset, len);
             dbConnection.commit();
         } catch (SQLException e) {
-            String sqlState = e.getSQLState();
             tryToRollback(dbConnection);
 
-            if (_sqlDriver.isForeignKeyError(sqlState)) {
+            if (_sqlDriver.isForeignKeyError(e)) {
                 throw new FileNotFoundHimeraFsException();
             }
             _log.error("write", e);
@@ -1519,17 +1497,16 @@ public class JdbcFs implements FileSystemProvider {
             _sqlDriver.addInodeLocation(dbConnection, inode, type, location);
             dbConnection.commit();
         } catch (SQLException se) {
-            String sqlState = se.getSQLState();
             tryToRollback(dbConnection);
 
-            if (_sqlDriver.isForeignKeyError(sqlState)) {
+            if (_sqlDriver.isForeignKeyError(se)) {
                 throw new FileNotFoundHimeraFsException();
             }
 
-            if (_sqlDriver.isDuplicatedKeyError(sqlState)) {
+            if (_sqlDriver.isDuplicatedKeyError(se)) {
                 // OK
             } else {
-                _log.error("addInodeLocation:  [" + sqlState + "]", se);
+                _log.error("addInodeLocation:", se);
                 throw new IOHimeraFsException(se.getMessage());
             }
         } finally {
@@ -1870,17 +1847,16 @@ public class JdbcFs implements FileSystemProvider {
             _sqlDriver.setStorageInfo(dbConnection, inode, storageInfo);
             dbConnection.commit();
         } catch (SQLException se) {
-            String sqlState = se.getSQLState();
             tryToRollback(dbConnection);
 
-            if (_sqlDriver.isForeignKeyError(sqlState)) {
+            if (_sqlDriver.isForeignKeyError(se)) {
                 throw new FileNotFoundHimeraFsException();
             }
 
-            if (_sqlDriver.isDuplicatedKeyError(sqlState)) {
+            if (_sqlDriver.isDuplicatedKeyError(se)) {
                 // OK
             } else {
-                _log.error("setStorageInfo:  [" + sqlState + "]", se);
+                _log.error("setStorageInfo:", se);
                 throw new IOHimeraFsException(se.getMessage());
             }
         } finally {
@@ -1911,13 +1887,12 @@ public class JdbcFs implements FileSystemProvider {
             _sqlDriver.setAccessLatency(dbConnection, inode, accessLatency);
             dbConnection.commit();
         } catch (SQLException e) {
-            String sqlState = e.getSQLState();
             tryToRollback(dbConnection);
 
-            if (_sqlDriver.isForeignKeyError(sqlState)) {
+            if (_sqlDriver.isForeignKeyError(e)) {
                 throw new FileNotFoundHimeraFsException();
             }
-            _log.error("setAccessLatency:  [" + sqlState + "]", e);
+            _log.error("setAccessLatency:", e);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1941,13 +1916,12 @@ public class JdbcFs implements FileSystemProvider {
             _sqlDriver.setRetentionPolicy(dbConnection, inode, retentionPolicy);
             dbConnection.commit();
         } catch (SQLException e) {
-            String sqlState = e.getSQLState();
             tryToRollback(dbConnection);
 
-            if (_sqlDriver.isForeignKeyError(sqlState)) {
+            if (_sqlDriver.isForeignKeyError(e)) {
                 throw new FileNotFoundHimeraFsException();
             }
-            _log.error("setRetentionPolicy:  [" + sqlState + "]", e);
+            _log.error("setRetentionPolicy:", e);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -2069,17 +2043,16 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
 
         } catch (SQLException e) {
-            String sqlState = e.getSQLState();
             tryToRollback(dbConnection);
 
-            if (_sqlDriver.isForeignKeyError(sqlState)) {
+            if (_sqlDriver.isForeignKeyError(e)) {
                 throw new FileNotFoundHimeraFsException();
             }
 
-            if (_sqlDriver.isDuplicatedKeyError(sqlState)) {
+            if (_sqlDriver.isDuplicatedKeyError(e)) {
                 // OK
             } else {
-                _log.error("setInodeChecksum:  [" + sqlState + "]", e);
+                _log.error("setInodeChecksum:", e);
                 throw new IOHimeraFsException(e.getMessage());
             }
         } finally {
