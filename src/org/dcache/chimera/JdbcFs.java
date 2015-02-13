@@ -170,11 +170,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
 
         } catch (SQLException se) {
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("createLink rollback ", e);
-            }
+            tryToRollback(dbConnection);
 
             String sqlState = se.getSQLState();
             if (_sqlDriver.isDuplicatedKeyError(sqlState)) {
@@ -224,11 +220,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
 
         } catch (SQLException e) {
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("create hlink rollback ", e);
-            }
+            tryToRollback(dbConnection);
 
             String sqlState = e.getSQLState();
             if(_sqlDriver.isDuplicatedKeyError(sqlState)) {
@@ -316,11 +308,7 @@ public class JdbcFs implements FileSystemProvider {
                             throw new FileExistsChimeraFsException(name);
                         }
                         _log.error("create File: ", se);
-                        try {
-                            dbConnection.rollback();
-                        } catch (SQLException e) {
-                            _log.error("create File rollback ", e);
-                        }
+                        tryToRollback(dbConnection);
                     }
                 }
 
@@ -347,11 +335,7 @@ public class JdbcFs implements FileSystemProvider {
                                 throw new FileExistsChimeraFsException(name);
                             }
                             _log.error("create File: ", se);
-                            try {
-                                dbConnection.rollback();
-                            } catch (SQLException e) {
-                                _log.error("create File rollback ", e);
-                            }
+                            tryToRollback(dbConnection);
                         }
                     }
                 }
@@ -382,11 +366,7 @@ public class JdbcFs implements FileSystemProvider {
 
             } catch (SQLException se) {
 
-                try {
-                    dbConnection.rollback();
-                } catch (SQLException e) {
-                    _log.error("create File rollback ", e);
-                }
+                tryToRollback(dbConnection);
 
                 if (se.getSQLState().startsWith("23")) {
                     // according to SQL-92 standard, class-code 23 is
@@ -453,11 +433,7 @@ public class JdbcFs implements FileSystemProvider {
 
         } catch (SQLException se) {
 
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("create File rollback ", e);
-            }
+            tryToRollback(dbConnection);
 
             if (se.getSQLState().startsWith("23")) {
                 // according to SQL-92 standard, class-code 23 is
@@ -493,11 +469,7 @@ public class JdbcFs implements FileSystemProvider {
 
         } catch (SQLException se) {
             _log.error("create level: ", se);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("create level rollback ", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(se.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -606,19 +578,11 @@ public class JdbcFs implements FileSystemProvider {
             _sqlDriver.remove(dbConnection, parent, name);
             dbConnection.commit();
         } catch (ChimeraFsException hfe) {
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("delete rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw hfe;
         } catch (SQLException e) {
             _log.error("delete", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("delete rollback", e1);
-            }
+            tryToRollback(dbConnection);
             throw new BackEndErrorHimeraFsException(e.getMessage(), e);
         } finally {
             tryToClose(dbConnection);
@@ -655,19 +619,11 @@ public class JdbcFs implements FileSystemProvider {
             _sqlDriver.remove(dbConnection, parent, inode);
             dbConnection.commit();
         } catch (ChimeraFsException hfe) {
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("delete rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw hfe;
         } catch (SQLException e) {
             _log.error("delete", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("delete rollback", e1);
-            }
+            tryToRollback(dbConnection);
             throw new BackEndErrorHimeraFsException(e.getMessage(), e);
         } finally {
             tryToClose(dbConnection);
@@ -768,11 +724,7 @@ public class JdbcFs implements FileSystemProvider {
 
         } catch (SQLException se) {
 
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("mkdir", se);
-            }
+            tryToRollback(dbConnection);
 
             // according to SQL-92 standard, class-code 23 is
             // Constraint Violation, in our case
@@ -1155,11 +1107,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("removeFileMetadata", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("removeFileMetadata rollback", e1);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1257,11 +1205,7 @@ public class JdbcFs implements FileSystemProvider {
 
         } catch (SQLException e) {
             _log.error("setInodeAttributes", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("setInodeAttributes rollback", e1);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1318,11 +1262,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("setInodeIo", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("setInodeIo rollback", e1);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1358,11 +1298,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             String sqlState = e.getSQLState();
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("write rollback", e);
-            }
+            tryToRollback(dbConnection);
 
             if (_sqlDriver.isForeignKeyError(sqlState)) {
                 throw new FileNotFoundHimeraFsException();
@@ -1521,11 +1457,7 @@ public class JdbcFs implements FileSystemProvider {
             rc = true;
         } catch (SQLException e) {
             _log.error("move:", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("move rollback:", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1588,11 +1520,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException se) {
             String sqlState = se.getSQLState();
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("addInodeLocation rollback ", e);
-            }
+            tryToRollback(dbConnection);
 
             if (_sqlDriver.isForeignKeyError(sqlState)) {
                 throw new FileNotFoundHimeraFsException();
@@ -1628,11 +1556,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException se) {
             _log.error("clearInodeLocation", se);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("clearInodeLocation rollback ", se);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(se.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1694,11 +1618,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("createTag", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("createTag rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1723,11 +1643,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("setTag", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("setTag rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } catch (ChimeraFsException e) {
             _log.error("setTag", e);
@@ -1758,11 +1674,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("removeTag", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("removeTag rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1787,11 +1699,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("removeTag", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("removeTag rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1876,11 +1784,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("setTagOwner", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("setTagOwner rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1904,11 +1808,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("setTagOwnerGroup", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("setTagOwnerGroup rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1932,11 +1832,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             _log.error("setTagMode", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e1) {
-                _log.error("setTagMode rollback", e);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
@@ -1975,11 +1871,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException se) {
             String sqlState = se.getSQLState();
-            try {
-                dbConnection.rollback();
-            } catch (SQLException e) {
-                _log.error("setStorageInfo rollback ", e);
-            }
+            tryToRollback(dbConnection);
 
             if (_sqlDriver.isForeignKeyError(sqlState)) {
                 throw new FileNotFoundHimeraFsException();
@@ -2020,11 +1912,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             String sqlState = e.getSQLState();
-            try {
-                dbConnection.rollback();
-            } catch (SQLException ee) {
-                _log.error("setAccessLatensy rollback ", ee);
-            }
+            tryToRollback(dbConnection);
 
             if (_sqlDriver.isForeignKeyError(sqlState)) {
                 throw new FileNotFoundHimeraFsException();
@@ -2054,11 +1942,7 @@ public class JdbcFs implements FileSystemProvider {
             dbConnection.commit();
         } catch (SQLException e) {
             String sqlState = e.getSQLState();
-            try {
-                dbConnection.rollback();
-            } catch (SQLException ee) {
-                _log.error("setRetentionPolicy rollback ", ee);
-            }
+            tryToRollback(dbConnection);
 
             if (_sqlDriver.isForeignKeyError(sqlState)) {
                 throw new FileNotFoundHimeraFsException();
@@ -2186,11 +2070,7 @@ public class JdbcFs implements FileSystemProvider {
 
         } catch (SQLException e) {
             String sqlState = e.getSQLState();
-            try {
-                dbConnection.rollback();
-            } catch (SQLException ee) {
-                _log.error("setInodeChecksum rollback ", ee);
-            }
+            tryToRollback(dbConnection);
 
             if (_sqlDriver.isForeignKeyError(sqlState)) {
                 throw new FileNotFoundHimeraFsException();
@@ -2312,11 +2192,7 @@ public class JdbcFs implements FileSystemProvider {
 
         } catch (SQLException e) {
             _log.error("Failed to set ACL: ", e);
-            try {
-                dbConnection.rollback();
-            } catch (SQLException ee) {
-                _log.error("setACL rollback ", ee);
-            }
+            tryToRollback(dbConnection);
             throw new IOHimeraFsException(e.getMessage());
         } finally {
             tryToClose(dbConnection);
