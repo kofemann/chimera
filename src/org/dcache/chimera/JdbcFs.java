@@ -298,11 +298,11 @@ public class JdbcFs implements FileSystemProvider {
                         dbConnection.commit();
 
                     } catch (SQLException se) {
+                        tryToRollback(dbConnection);
                         if (_sqlDriver.isDuplicatedKeyError(se)) {
                             throw new FileExistsChimeraFsException(name);
                         }
                         _log.error("create File: ", se);
-                        tryToRollback(dbConnection);
                     }
                 }
 
