@@ -1503,9 +1503,7 @@ public class JdbcFs implements FileSystemProvider {
                 throw new FileNotFoundHimeraFsException();
             }
 
-            if (_sqlDriver.isDuplicatedKeyError(se)) {
-                // OK
-            } else {
+            if (!_sqlDriver.isDuplicatedKeyError(se)) {
                 _log.error("addInodeLocation:", se);
                 throw new IOHimeraFsException(se.getMessage());
             }
@@ -1853,9 +1851,7 @@ public class JdbcFs implements FileSystemProvider {
                 throw new FileNotFoundHimeraFsException();
             }
 
-            if (_sqlDriver.isDuplicatedKeyError(se)) {
-                // OK
-            } else {
+            if (!_sqlDriver.isDuplicatedKeyError(se)) {
                 _log.error("setStorageInfo:", se);
                 throw new IOHimeraFsException(se.getMessage());
             }
@@ -2049,9 +2045,7 @@ public class JdbcFs implements FileSystemProvider {
                 throw new FileNotFoundHimeraFsException();
             }
 
-            if (_sqlDriver.isDuplicatedKeyError(e)) {
-                // OK
-            } else {
+            if (!_sqlDriver.isDuplicatedKeyError(e)) {
                 _log.error("setInodeChecksum:", e);
                 throw new IOHimeraFsException(e.getMessage());
             }
