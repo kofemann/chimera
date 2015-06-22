@@ -1028,4 +1028,11 @@ public class BasicTest extends ChimeraTestCaseHelper {
         stat.setGid(1);
         dir.setStat(stat);
     }
+
+    @Test(expected = FileExistsChimeraFsException.class)
+    public void testCreateDuplicateTag() throws Exception {
+        FsInode dir = _rootInode.mkdir("dir1");
+        _fs.createTag(dir, "aTag", 0, 0, 0644);
+        _fs.createTag(dir, "aTag", 0, 0, 0644);
+    }
 }
