@@ -16,7 +16,7 @@
  */
 package org.dcache.chimera;
 
-import java.nio.charset.StandardCharsets;
+import com.google.common.base.Charsets;
 import org.dcache.chimera.posix.Stat;
 
 public class FsInode_CONST extends FsInode {
@@ -24,12 +24,12 @@ public class FsInode_CONST extends FsInode {
     private static final String _title = "\n >> Chimera FS Engine Version 0.0.9 $Rev: 897 $ << \n";
     private final byte[] _version;
 
-    public FsInode_CONST(FileSystemProvider fs, String id) {
-        super(fs, id, FsInodeType.CONST);
+    public FsInode_CONST(FileSystemProvider fs, long ino) {
+        super(fs, ino, FsInodeType.CONST);
         StringBuilder sb = new StringBuilder(_title);
         sb.append("\n").append(_fs.getInfo()).append("\n");
 
-        _version = sb.toString().getBytes(StandardCharsets.UTF_8);
+        _version = sb.toString().getBytes(Charsets.UTF_8);
     }
 
     @Override
@@ -76,13 +76,15 @@ public class FsInode_CONST extends FsInode {
     @Override
     public Stat stat() throws ChimeraFsException {
 
-        Stat ret = new Stat();
+        Stat ret = new Stat(super.stat());
         ret.setNlink(1);
         ret.setMode(0444 | UnixPermission.S_IFREG);
         ret.setSize(_version.length);
         ret.setATime(System.currentTimeMillis());
         ret.setMTime(ret.getATime());
         ret.setCTime(ret.getATime());
+        ret.setUid(0);
+        ret.setGid(0);
 
         return ret;
 

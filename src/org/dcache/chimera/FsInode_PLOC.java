@@ -16,19 +16,24 @@
  */
 package org.dcache.chimera;
 
-public class FileNotFoundHimeraFsException extends ChimeraFsException {
+/**
+ * This class retrieves file locality metadata via an invocation of
+ * the pool manager.
+ *
+ * @author arossi
+ */
+public class FsInode_PLOC extends FsInode_PGET {
+    private String _locality;
 
-    private static final long serialVersionUID = 2898082345212568953L;
-
-    public FileNotFoundHimeraFsException() {
-        super();
+    public FsInode_PLOC(FileSystemProvider fs, long ino) {
+        super(fs, ino, FsInodeType.PLOC);
     }
 
-    public FileNotFoundHimeraFsException(Throwable cause) {
-        super(null, cause);
-    }
-
-    public FileNotFoundHimeraFsException(String path) {
-        super("path [" + path + "] does not exist");
+    @Override
+    protected String value() throws ChimeraFsException {
+        if (_locality == null) {
+           _locality = _fs.getFileLocality(this);
+        }
+        return _locality + NEWLINE;
     }
 }

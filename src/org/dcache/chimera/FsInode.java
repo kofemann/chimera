@@ -16,20 +16,24 @@
  */
 package org.dcache.chimera;
 
+import com.google.common.primitives.Longs;
+
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import org.dcache.acl.ACE;
 import org.dcache.chimera.posix.Stat;
+
+import static org.dcache.chimera.FileSystemProvider.StatCacheOption.STAT;
 
 /**
  * inode representation
  */
 public class FsInode {
 
-    private static final int NIBBLES_IN_32_BIT_INTEGER = 8;
-    private static final int RADIX_HEXADECIMAL = 16;
-    private static final int ID_LENGTH_PNFS_ID = 24;
-    // we are not allowed to modify it
-    protected final String _id;
+    protected final long _ino;
     /**
      * type of inode
      */
@@ -50,143 +54,64 @@ public class FsInode {
     private FsInode _parent;
 
     /**
+     * Copy constructor.
+     */
+    public FsInode(FileSystemProvider fs, FsInode inode) {
+        this(fs, inode.ino(), inode.type(), inode.getLevel(), inode.getStatCache());
+    }
+
+    /**
      * create a new inode in filesystem fs with given id and type
      * @param fs file system
-     * @param id the new id
+     * @param ino the new id
      * @param type inode type
      */
-    public FsInode(FileSystemProvider fs, String id, FsInodeType type) {
-        this(fs, id, type, 0);
+    public FsInode(FileSystemProvider fs, long ino, FsInodeType type) {
+        this(fs, ino, type, 0);
     }
 
     /**
      * create a new inode of type 'inode' in the filesystem fs with given id
      * @param fs file system
-     * @param id inode id
+     * @param ino inode id
      */
-    public FsInode(FileSystemProvider fs, String id) {
-        this(fs, id, 0);
+    public FsInode(FileSystemProvider fs, long ino) {
+        this(fs, ino, 0);
     }
 
     /**
      * Create a new FsInode with given id and level,  type == INODE
      * @param fs
-     * @param id
+     * @param ino
      * @param level
      */
-    public FsInode(FileSystemProvider fs, String id, int level) {
-        this(fs, id, FsInodeType.INODE, level);
+    public FsInode(FileSystemProvider fs, long ino, int level) {
+        this(fs, ino, FsInodeType.INODE, level);
     }
 
     /**
      * Create a new FsInode with given id, type and level
      *
      * @param fs
-     * @param id
+     * @param ino
      * @param type
      * @param level
      */
-    public FsInode(FileSystemProvider fs, String id, FsInodeType type, int level) {
-        _id = id;
+    public FsInode(FileSystemProvider fs, long ino, FsInodeType type, int level) {
+        this(fs, ino, type, level, null);
+    }
+
+    public FsInode(FileSystemProvider fs, long ino, FsInodeType type, int level, Stat stat)
+    {
+        _ino = ino;
         _fs = fs;
         _level = level;
         _type = type;
+        _stat = stat;
     }
 
-    /**
-     * Create a new FsInode with newly generated id, type == INODE, level==0
-     * @param fs
-     */
-    public FsInode(FileSystemProvider fs) {
-        this(fs, FsInode.generateNewID());
-    }
-
-    public long id() {
-        long id;
-
-        if (_id.length() == ID_LENGTH_PNFS_ID) {
-            id = buildPnfsInodeId();
-        } else {
-            id = buildDecodedAndXoredInodeId();
-        }
-
-        return id;
-    }
-
-    private long buildPnfsInodeId() {
-
-        /*
-         * PNFS-IDs are 24-character hexadecimal strings of the form:
-         *
-         *      ddddeeeehhhhhhhhllllllll
-         *
-         *  where d are nibbles of 16-bit database
-         *        e are nibbles of 16-bit ext(ended) counter (which is ignored)
-         *        h are nibbles of 32-bit high-order counter (mostly ignored)
-         *        l are nibbles of 32-bit low-order counter
-         */
-        int database = Integer.parseInt(_id.substring(0, 4), RADIX_HEXADECIMAL);
-        long high = Long.parseLong(_id.substring(8, 16), RADIX_HEXADECIMAL);
-        long low = Long.parseLong(_id.substring(16), RADIX_HEXADECIMAL);
-
-        /*
-         *  The three lowest-order bits in a PNFS-ID represent the different levels
-         *  of a file.  Because of this, new PNFS-IDs are created by increasing the
-         *  largest PNFS-ID by 8.  Since the lowest 3-bits are not significant, we
-         *  shift the least-significant 32-bit part of the PNFS-ID ("low") down by
-         *  3-bits to allow 3-bits from the next least-significant 32-bit part of
-         *  the PNFS-ID ("high").
-         */
-        long counter = low >> 3 | (high & 7) << 29;
-
-        /*
-         *  reverse order (LSB becomes MSB, etc) and left-shift by 16-bits.
-         *  For example:
-         *         (0000000000000000)0000000000000001
-         *  becomes 1000000000000000 0000000000000000
-         *
-         *  and    (0000000000000000)1111111111101111
-         *  becomes 1111011111111111 0000000000000000
-         */
-        int reversedDatabase = Integer.reverse(database);
-
-        /*
-         * We reverse the bits of the database to reduce the impact; for example,
-         * if a site has 7 databases then only 3-bits are needed to represent the
-         * database.  The reversedDatabase would take up only the 3 most-significant
-         * bits and remaining 29-bits can represent 2^30-1 (approx 10^9) entries
-         * before there is any chance of collisions.
-         *
-         * PNFS maps PNFS-ID to inode-ID in a similar fashion, but with explicit
-         * partitioning and taking only the least-significant 8-bits of the database.
-         * From dbfs/md2ptypes.h, line 201
-         *
-         *      #define  mdInodeID(id)        (((id).db<<24)|((id).low&0xFFFFF8))
-         *
-         * In comparison to the PNFS method, the algorithm here allows more significant
-         * bits from the counter without collisions if a site has 127 or fewer databases.
-         */
-        long id = reversedDatabase ^ counter;
-
-        return id & 0xFFFFFFFFL;
-    }
-
-    private long buildDecodedAndXoredInodeId() {
-        long inodeId = 0;
-
-        for (int index = 0; index < _id.length(); index += NIBBLES_IN_32_BIT_INTEGER) {
-            int endIndex = index + NIBBLES_IN_32_BIT_INTEGER;
-            if (endIndex > _id.length()) {
-                endIndex = _id.length();
-            }
-
-            String idFragment = _id.substring(index, endIndex);
-            long uint = Long.parseLong(idFragment, RADIX_HEXADECIMAL);
-
-            inodeId ^= uint;
-        }
-
-        return inodeId;
+    public long ino() {
+        return _ino;
     }
 
     /**
@@ -194,7 +119,7 @@ public class FsInode {
      *
      * @return new id
      */
-    public final static String generateNewID() {
+    public static final String generateNewID() {
         return InodeId.newID(0);
     }
 
@@ -204,7 +129,7 @@ public class FsInode {
      * @param fsId
      * @return new id
      */
-    public final static String generateNewID(int fsId) {
+    public static final String generateNewID(int fsId) {
         return InodeId.newID(fsId);
     }
 
@@ -223,11 +148,10 @@ public class FsInode {
      */
     protected final byte[] byteBase(byte[] opaque) {
         ByteBuffer b = ByteBuffer.allocate(128);
-        byte[] fh = InodeId.hexStringToByteArray(_id);
         b.put((byte) _fs.getFsId())
                 .put((byte) _type.getType())
-                .put((byte) fh.length)
-                .put(fh);
+                .put((byte)Long.BYTES) // set the file id size to be compatible with old format
+                .putLong(_ino);
 
         b.put((byte) opaque.length);
         b.put(opaque);
@@ -242,20 +166,12 @@ public class FsInode {
         return byteBase( Integer.toString(_level).getBytes());
     }
 
-    @Deprecated
-    /**
-     * @return a String representation of inode, including type and fsid
-     */
-    public String toFullString() {
-        return JdbcFs.toHexString(getIdentifier());
-    }
-
     /**
      * @return a String representation of inode id only
      */
     @Override
     public String toString() {
-        return _id;
+        return String.valueOf(_ino);
     }
 
     /**
@@ -278,57 +194,63 @@ public class FsInode {
      * @throws FileNotFoundHimeraFsException
      */
     public Stat statCache() throws ChimeraFsException {
-        if (_stat == null) {
-            _stat = this.stat();
-        }
-
-        return _stat;
+        return (_stat == null) ? stat() : _stat;
     }
 
-    public int write(long pos, byte[] data, int offset, int len) {
-        int ret = -1;
-        try {
-            ret = _fs.write(this, _level, pos, data, offset, len);
-        } catch (ChimeraFsException e) {
-        }
+    public int write(long pos, byte[] data, int offset, int len) throws ChimeraFsException
+    {
+        int ret = _fs.write(this, _level, pos, data, offset, len);
+        _stat = null;
         return ret;
     }
 
-    public int read(long pos, byte[] data, int offset, int len) {
-        int ret = -1;
-        try {
-            ret = _fs.read(this, _level, pos, data, offset, len);
-        } catch (ChimeraFsException e) {
-        }
-        return ret;
+    public int read(long pos, byte[] data, int offset, int len) throws ChimeraFsException
+    {
+        return _fs.read(this, _level, pos, data, offset, len);
     }
 
     /**
      * crate a directory with name 'newDir' in current inode
      */
     public FsInode mkdir(String newDir) throws ChimeraFsException {
-        return _fs.mkdir(this, newDir);
+        FsInode dir = _fs.mkdir(this, newDir);
+        _stat = null;
+        return dir;
     }
 
     /**
      * crate a directory with name 'newDir' in current inode with different access rights
      */
     public FsInode mkdir(String name, int owner, int group, int mode) throws ChimeraFsException {
-        return _fs.mkdir(this, name, owner, group, mode);
+        FsInode dir = _fs.mkdir(this, name, owner, group, mode);
+        _stat = null;
+        return dir;
+    }
+
+    /**
+     * crate a directory with name 'newDir' in current inode with different access rights
+     */
+    public FsInode mkdir(String name, int owner, int group, int mode, List<ACE> acl, Map<String, byte[]> tags)
+            throws ChimeraFsException {
+        FsInode dir = _fs.mkdir(this, name, owner, group, mode, acl, tags);
+        _stat = null;
+        return dir;
     }
 
     /**
      * get inode of file in the current directory with name 'name'
      */
-    public FsInode inodeOf(String name) throws ChimeraFsException {
-        return _fs.inodeOf(this, name);
+    public FsInode inodeOf(String name, FileSystemProvider.StatCacheOption stat) throws ChimeraFsException {
+        return _fs.inodeOf(this, name, stat);
     }
 
     /**
      * create new file in the current directory with name 'name'
      */
     public FsInode create(String name, int uid, int gid, int mode) throws ChimeraFsException {
-        return _fs.createFile(this, name, uid, gid, mode);
+        FsInode file = _fs.createFile(this, name, uid, gid, mode);
+        _stat = null;
+        return file;
     }
 
     /**
@@ -339,13 +261,15 @@ public class FsInode {
         if (!this.isDirectory()) {
             throw new NotDirChimeraException(this);
         }
-        return _fs.createLink(this, name, uid, gid, mode, dest);
+        FsInode link = _fs.createLink(this, name, uid, gid, mode, dest);
+        _stat = null;
+        return link;
     }
 
     /**
      * get inode of root element of the file system
      */
-    static public FsInode getRoot(FileSystemProvider fs) throws ChimeraFsException {
+    public static FsInode getRoot(FileSystemProvider fs) throws ChimeraFsException {
         return fs.path2inode("/");
     }
 
@@ -354,7 +278,7 @@ public class FsInode {
         boolean rc = false;
 
         try {
-            _stat = this.statCache();
+            statCache();
             rc = true;
         } catch (FileNotFoundHimeraFsException hfe) {
         }
@@ -404,7 +328,8 @@ public class FsInode {
             throw new IOHimeraFsException("Not a directory");
         }
 
-        _fs.remove(this, name);
+        _fs.remove(this, name, inodeOf(name, STAT));
+        _stat = null;
     }
 
     public int fsId() {
@@ -437,8 +362,13 @@ public class FsInode {
 	}
     }
 
-    void setStatCache(Stat predefinedStat) {
-	_stat = predefinedStat;
+    protected Stat getStatCache()
+    {
+        return _stat;
+    }
+
+    protected void setStatCache(Stat predefinedStat) {
+        _stat = predefinedStat;
     }
 
     //  for use in Collections
@@ -456,14 +386,14 @@ public class FsInode {
         FsInode otherInode = (FsInode) o;
 
         // FIXME: _jdbcFs it the part of the test
-        return _level == otherInode._level && _id.equals(otherInode._id) && _type.equals(otherInode._type);
+        return _level == otherInode._level && _ino == otherInode._ino && _type.equals(otherInode._type);
 
         // return this.toFullString().equals( otherInode.toFullString() ) ;
     }
 
     @Override
     public int hashCode() {
-        return Arrays.hashCode(getIdentifier());
+        return Longs.hashCode(_ino);
     }
     // only package classes allowed to use this
     private boolean _ioEnabled;
@@ -486,5 +416,11 @@ public class FsInode {
 
     public DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream() throws ChimeraFsException {
         return _fs.newDirectoryStream(this);
+    }
+
+    public String getId() throws ChimeraFsException
+    {
+        Stat stat = _stat;
+        return (stat != null) ? stat.getId() : _fs.inode2id(this);
     }
 }

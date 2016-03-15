@@ -16,17 +16,20 @@
  */
 package org.dcache.chimera;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-
-import org.dcache.chimera.util.SqlHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.sql.DataSource;
+
+import java.util.EnumSet;
+
+import org.dcache.acl.enums.AceFlags;
+import org.dcache.acl.enums.RsType;
+
 /**
  * Oracle specific SQL driver
+ *
+ *
  */
 class OracleFsSqlDriver extends FsSqlDriver {
 
@@ -36,47 +39,47 @@ class OracleFsSqlDriver extends FsSqlDriver {
      *  this is a utility class which is issues SQL queries on database
      *
      */
-    protected OracleFsSqlDriver() {
+    protected OracleFsSqlDriver(DataSource dataSource) throws ChimeraFsException
+    {
+        super(dataSource);
         _log.info("Running Oracle specific Driver");
     }
-    private static final String sqlInode2Path = "SELECT iname, LEVEL AS deep FROM (SELECT * FROM  t_dirs WHERE iname !='.' AND iname !='..') start with ipnfsid=? CONNECT BY  ipnfsid = PRIOR iparent ORDER BY deep DESC";
 
     /**
      *
      * return the path associated with inode, starting from root of the tree.
      * in case of hard link, one of the possible paths is returned
      *
-     * @param dbConnection
      * @param inode
-     * @throws SQLException
      * @return
      */
     @Override
-    String inode2path(Connection dbConnection, FsInode inode, FsInode startFrom, boolean inclusive) throws SQLException {
+    String inode2path(FsInode inode, FsInode startFrom) {
+        return _jdbc.query(
+                "SELECT iname, LEVEL AS deep FROM (SELECT * FROM  t_dirs) start with ichild=? CONNECT BY  ichild = PRIOR iparent ORDER BY deep DESC",
+                rs -> {
+                    StringBuilder sb = new StringBuilder();
+                    while (rs.next()) {
+                        sb.append("/").append(rs.getString("iname"));
+                    }
+                    return sb.toString();
+                },
+                inode.ino());
+    }
 
-        String path = null;
-        PreparedStatement ps = null;
-        ResultSet result = null;
-
-        try {
-
-            ps = dbConnection.prepareStatement(sqlInode2Path);
-            ps.setString(1, inode.toString());
-
-            result = ps.executeQuery();
-
-            StringBuilder sb = new StringBuilder();
-            while (result.next()) {
-                sb.append("/").append(result.getString("iname"));
-            }
-
-            path = sb.toString();
-
-        } finally {
-            SqlHelper.tryToClose(result);
-            SqlHelper.tryToClose(ps);
-        }
-
-        return path;
+    @Override
+    void copyAcl(FsInode source, FsInode inode, RsType type, EnumSet<AceFlags> mask, EnumSet<AceFlags> flags) {
+        int msk = EnumSet.complementOf(mask).stream().mapToInt(AceFlags::getValue).reduce(0, (a, b) -> a | b);
+        int flgs = flags.stream().mapToInt(AceFlags::getValue).reduce(0, (a, b) -> a | b);
+        _jdbc.update("INSERT INTO t_acl (inumber,rs_type,type,flags,access_msk,who,who_id,ace_order) " +
+                     "SELECT ?, ?, type, BITAND(flags, ?), access_msk, who, who_id, ace_order " +
+                     "FROM t_acl WHERE inumber = ? AND BITAND(flags, ?) > 0",
+                     ps -> {
+                         ps.setLong(1, inode.ino());
+                         ps.setInt(2, type.getValue());
+                         ps.setInt(3, msk);
+                         ps.setLong(4, source.ino());
+                         ps.setInt(5, flgs);
+                     });
     }
 }

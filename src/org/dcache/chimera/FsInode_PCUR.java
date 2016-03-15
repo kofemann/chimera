@@ -16,19 +16,18 @@
  */
 package org.dcache.chimera;
 
-public class FileNotFoundHimeraFsException extends ChimeraFsException {
+/**
+ * Cursor returns 0-byte string.
+ *
+ * @author arossi
+ */
+public class FsInode_PCUR extends FsInode_PGET {
 
-    private static final long serialVersionUID = 2898082345212568953L;
-
-    public FileNotFoundHimeraFsException() {
-        super();
+    public FsInode_PCUR(FileSystemProvider fs, long ino) {
+        super(fs, ino, FsInodeType.PCUR);
     }
 
-    public FileNotFoundHimeraFsException(Throwable cause) {
-        super(null, cause);
-    }
-
-    public FileNotFoundHimeraFsException(String path) {
-        super("path [" + path + "] does not exist");
+    protected String value() throws ChimeraFsException {
+        return "";
     }
 }

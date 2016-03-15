@@ -16,32 +16,63 @@
  */
 package org.dcache.chimera;
 
+import com.google.common.base.Throwables;
+import com.google.common.collect.Lists;
+import com.google.common.io.ByteStreams;
+import com.google.common.primitives.Ints;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
+import org.springframework.jdbc.JdbcUpdateAffectedIncorrectNumberOfRowsException;
+import org.springframework.jdbc.LobRetrievalFailureException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ParameterizedPreparedStatementSetter;
+import org.springframework.jdbc.core.ResultSetExtractor;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.jdbc.support.SQLErrorCodeSQLExceptionTranslator;
+
+import javax.sql.DataSource;
+
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Deque;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import org.dcache.chimera.store.AccessLatency;
+import org.dcache.chimera.store.RetentionPolicy;
 
 import org.dcache.acl.ACE;
+import org.dcache.acl.enums.AceFlags;
 import org.dcache.acl.enums.AceType;
+import org.dcache.acl.enums.RsType;
 import org.dcache.acl.enums.Who;
 import org.dcache.chimera.posix.Stat;
-import org.dcache.chimera.store.AccessLatency;
 import org.dcache.chimera.store.InodeStorageInformation;
-import org.dcache.chimera.store.RetentionPolicy;
-import org.dcache.chimera.util.SqlHelper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.dcache.chimera.store.Checksum;
+import org.dcache.chimera.store.ChecksumType;
+
+import static java.util.stream.Collectors.toList;
+import static org.dcache.chimera.FileSystemProvider.StatCacheOption;
+import static org.dcache.chimera.FileSystemProvider.StatCacheOption.STAT;
 
 /**
  * SQL driver
@@ -54,54 +85,61 @@ class FsSqlDriver {
      * logger
      */
     private static final Logger _log = LoggerFactory.getLogger(FsSqlDriver.class);
+
     /**
      * default file IO mode
      */
-    private final static int IOMODE_ENABLE = 1;
-    private final static int IOMODE_DISABLE = 0;
-    private final int _ioMode;
+    private static final int IOMODE_ENABLE = 1;
+    private static final int IOMODE_DISABLE = 0;
+
+    protected final int _ioMode;
+
+    final JdbcTemplate _jdbc;
+
+    private final long _root;
 
     /**
      *  this is a utility class which is issues SQL queries on database
      *
      */
-    protected FsSqlDriver() {
-
-        if (Boolean.valueOf(System.getProperty("chimera.inodeIoMode"))) {
-            _ioMode = IOMODE_ENABLE;
-        } else {
-            _ioMode = IOMODE_DISABLE;
+    protected FsSqlDriver(DataSource dataSource) throws ChimeraFsException
+    {
+        _ioMode = Boolean.valueOf(System.getProperty("chimera.inodeIoMode")) ? IOMODE_ENABLE : IOMODE_DISABLE;
+        _jdbc = new JdbcTemplate(dataSource);
+        _jdbc.setExceptionTranslator(new SQLErrorCodeSQLExceptionTranslator(dataSource) {
+            @Override
+            protected DataAccessException customTranslate(String task, String sql, SQLException sqlEx)
+            {
+                if (isForeignKeyError(sqlEx)) {
+                    return new ForeignKeyViolationException(buildMessage(task, sql, sqlEx), sqlEx);
+                }
+                return super.customTranslate(task, sql, sqlEx);
+            }
+        });
+        Long root = getInumber("000000000000000000000000000000000000");
+        if (root == null) {
+            throw new FileNotFoundHimeraFsException("Root inode does not exist.");
         }
-
+        _root = root;
     }
 
-    private static final String sqlGetFsStat = "SELECT count(ipnfsid) AS usedFiles, SUM(isize) AS usedSpace FROM t_inodes WHERE itype=32768";
+    long getRootInumber()
+    {
+        return _root;
+    }
 
     /**
      * Get FsStat for a given filesystem.
-     * @param dbConnection
      * @return fsStat
-     * @throws SQLException
      */
-    FsStat getFsStat(Connection dbConnection) throws SQLException {
-
-        long usedFiles = 0;
-        long usedSpace = 0;
-        PreparedStatement stFsStat = null;
-        ResultSet rs = null;
-        try {
-            stFsStat = dbConnection.prepareStatement(sqlGetFsStat);
-            rs = stFsStat.executeQuery();
-            if (rs.next()) {
-                usedFiles = rs.getLong("usedFiles");
-                usedSpace = rs.getLong("usedSpace");
-            }
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stFsStat);
-        }
-
-        return new FsStat(JdbcFs.AVAILABLE_SPACE, JdbcFs.TOTAL_FILES, usedSpace, usedFiles);
+    FsStat getFsStat() {
+        return _jdbc.queryForObject(
+                "SELECT count(*) AS usedFiles, SUM(isize) AS usedSpace FROM t_inodes WHERE itype=32768",
+                (rs, rowNum) -> {
+                    long usedFiles = rs.getLong("usedFiles");
+                    long usedSpace = rs.getLong("usedSpace");
+                    return new FsStat(JdbcFs.AVAILABLE_SPACE, JdbcFs.TOTAL_FILES, usedSpace, usedFiles);
+                });
     }
 
     /**
@@ -109,26 +147,16 @@ class FsSqlDriver {
      *  creates a new inode and an entry name in parent directory.
      * Parent reference count and modification time is updated.
      *
-     * @param dbConnection
      * @param parent
      * @param name
      * @param owner
      * @param group
      * @param mode
      * @param type
-     * @throws ChimeraFsException
-     * @throws SQLException
      * @return
      */
-    FsInode createFile(Connection dbConnection, FsInode parent, String name, int owner, int group, int mode, int type) throws
-                                                                                                                       SQLException {
-
-        FsInode inode;
-
-        inode = new FsInode(parent.getFs());
-        createFileWithId(dbConnection, parent, inode, name, owner, group, mode, type);
-
-        return inode;
+    FsInode createFile(FsInode parent, String name, int owner, int group, int mode, int type) {
+        return createFileWithId(parent, FsInode.generateNewID(), name, owner, group, mode, type);
     }
 
     /**
@@ -136,245 +164,266 @@ class FsSqlDriver {
      *  Creates a new entry with given inode is in parent directory.
      * Parent reference count and modification time is updated.
      *
-     * @param dbConnection
-     * @param inode
      * @param parent
+     * @param id
      * @param name
      * @param owner
      * @param group
      * @param mode
      * @param type
-     * @throws SQLException
      * @return
      */
-    FsInode createFileWithId(Connection dbConnection, FsInode parent, FsInode inode, String name, int owner, int group, int mode, int type) throws
-                                                                                                                                            SQLException {
-
-        createInode(dbConnection, inode, type, owner, group, mode, 1);
-        createEntryInParent(dbConnection, parent, name, inode);
-        incNlink(dbConnection, parent);
-
-        return inode;
+    FsInode createFileWithId(FsInode parent, String id, String name, int owner, int group, int mode, int type) {
+        return createInodeInParent(parent, name, id, owner, group, mode, type, 1, 0);
     }
-    private static final String sqlListDir = "SELECT * FROM t_dirs WHERE iparent=?";
+
+    Long getInumber(String id)
+    {
+        return _jdbc.query(
+                "SELECT inumber FROM t_inodes WHERE ipnfsid = ?",
+                ps -> ps.setString(1, id),
+                rs -> rs.next() ? rs.getLong("inumber") : null);
+    }
+
+    String getId(FsInode inode)
+    {
+        return _jdbc.query(
+                "SELECT ipnfsid FROM t_inodes WHERE inumber=?",
+                ps -> ps.setLong(1, inode.ino()),
+                rs -> rs.next() ? rs.getString("ipnfsid") : null);
+    }
 
     /**
      * returns list of files in the directory. If there is no entries,
      * empty list is returned. inode is not tested to be a directory
      *
-     * @param dbConnection
      * @param dir
-     * @throws SQLException
      * @return
      */
-    String[] listDir(Connection dbConnection, FsInode dir) throws SQLException {
-
-        String[] list = null;
-        ResultSet result = null;
-        PreparedStatement stListDirectory = null;
-
-        try {
-
-            stListDirectory = dbConnection.prepareStatement(sqlListDir);
-            stListDirectory.setString(1, dir.toString());
-            stListDirectory.setFetchSize(1000);
-            result = stListDirectory.executeQuery();
-
-
-            List<String> directoryList = new ArrayList<>();
-            while (result.next()) {
-                directoryList.add(result.getString("iname"));
-            }
-
-            list = directoryList.toArray(new String[directoryList.size()]);
-        } finally {
-            SqlHelper.tryToClose(result);
-            SqlHelper.tryToClose(stListDirectory);
-        }
-
-        return list;
+    String[] listDir(FsInode dir) {
+        List<String> directoryList = _jdbc.queryForList("SELECT iname FROM t_dirs WHERE iparent=?",
+                                                        String.class, dir.ino());
+        return Stream.concat(Stream.of(".", ".."), directoryList.stream()).toArray(String[]::new);
     }
-    private static final String sqlListDirFull = "SELECT "
-            + "t_inodes.ipnfsid, t_dirs.iname, t_inodes.isize,t_inodes.inlink,t_inodes.imode,t_inodes.itype,t_inodes.iuid,t_inodes.igid,t_inodes.iatime,t_inodes.ictime,t_inodes.imtime,t_inodes.igeneration  "
-            + "FROM t_inodes, t_dirs WHERE iparent=? AND t_inodes.ipnfsid = t_dirs.ipnfsid";
 
     /**
      * the same as listDir, but array of {@HimeraDirectoryEntry} is returned, which contains
      * file attributes as well.
      *
-     * @param dbConnection
      * @param dir
-     * @throws SQLException
      * @return
      */
-    DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(Connection dbConnection, FsInode dir) throws SQLException {
+    DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir) {
+        return new DirectoryStreamB<HimeraDirectoryEntry>()
+        {
+            final DirectoryStreamImpl stream = new DirectoryStreamImpl(dir, _jdbc);
 
-        ResultSet result;
-        PreparedStatement stListDirectoryFull;
+            @Override
+            public Iterator<HimeraDirectoryEntry> iterator()
+            {
+                return new Iterator<HimeraDirectoryEntry>()
+                {
+                    private HimeraDirectoryEntry current = innerNext();
 
-        stListDirectoryFull = dbConnection.prepareStatement(sqlListDirFull);
-        stListDirectoryFull.setFetchSize(50);
-        stListDirectoryFull.setString(1, dir.toString());
+                    @Override
+                    public boolean hasNext()
+                    {
+                        return current != null;
+                    }
 
-        result = stListDirectoryFull.executeQuery();
-        return new DirectoryStreamImpl(dir, dbConnection, stListDirectoryFull, result);
-        /*
-         * DB resources freed by
-         * DirectoryStreamB.close()
-         */
+                    @Override
+                    public HimeraDirectoryEntry next()
+                    {
+                        if (current == null) {
+                            throw new NoSuchElementException("No more entries");
+                        }
+                        HimeraDirectoryEntry entry = current;
+                        current = innerNext();
+                        return entry;
+                    }
+
+                    protected HimeraDirectoryEntry innerNext()
+                    {
+                        try {
+                            ResultSet rs = stream.next();
+                            if (rs == null) {
+                                return null;
+                            }
+                            Stat stat = toStat(rs);
+                            FsInode inode = new FsInode(dir.getFs(), rs.getLong("inumber"), FsInodeType.INODE, 0, stat);
+                            inode.setParent(dir);
+                            return new HimeraDirectoryEntry(rs.getString("iname"), inode, stat);
+                        } catch (SQLException e) {
+                            _log.error("failed to fetch next entry: {}", e.getMessage());
+                            return null;
+                        }
+                    }
+                };
+            }
+
+            @Override
+            public void close() throws IOException
+            {
+                stream.close();
+            }
+        };
     }
 
-    void remove(Connection dbConnection, FsInode parent, String name) throws ChimeraFsException, SQLException {
-
+    /**
+     * Removes the hard link {@code name} in {@code parent} to {@code inode}. If the
+     * last link is removed the object is deleted.
+     *
+     * @return true if removed, false if the link did not exist.
+     */
+    boolean remove(FsInode parent, String name, FsInode inode) throws ChimeraFsException {
+        if (inode.type() != FsInodeType.INODE) {
+            throw new InvalidArgumentChimeraException("Not a file.");
+        }
         if (name.equals("..") || name.equals(".")) {
             throw new InvalidNameChimeraException("bad name: '" + name + "'");
         }
-
-        FsInode inode = inodeOf(dbConnection, parent, name);
-        if (inode == null || inode.type() != FsInodeType.INODE) {
-            throw new FileNotFoundHimeraFsException("Not a file.");
-        }
-
-        if (inode.isDirectory()) {
-            removeDir(dbConnection, parent, inode, name);
-        } else {
-            removeFile(dbConnection, parent, inode, name);
-        }
+        return inode.isDirectory() ? removeDir(parent, inode, name) : removeFile(parent, inode, name);
     }
 
-    private void removeDir(Connection dbConnection, FsInode parent, FsInode inode, String name) throws ChimeraFsException, SQLException {
+    private boolean removeDir(FsInode parent, FsInode inode, String name) throws ChimeraFsException {
+        if (!removeEntryInParent(parent, name, inode)) {
+            return false;
+        }
 
-        Stat dirStat = inode.statCache();
-        if (dirStat.getNlink() > 2) {
+        // A directory contains two pseudo entries for '.' and '..'
+        decNlink(inode, 2);
+
+        removeTag(inode);
+
+        if (!removeInodeIfUnlinked(inode)) {
             throw new DirNotEmptyHimeraFsException("directory is not empty");
         }
 
-        if (removeEntryInParent(dbConnection, parent, name)) {
+        /* During bulk deletion of files in the same directory,
+         * updating the parent inode is often a contention point. The
+         * link count on the parent is updated last to reduce the time
+         * in which the directory inode is locked by the database.
+         */
+        decNlink(parent);
 
-            removeEntryInParent(dbConnection, inode, ".");
-            removeEntryInParent(dbConnection, inode, "..");
-
-            // decrease reference count ( '.' , '..', and in parent directory ,
-            // and inode itself)
-            decNlink(dbConnection, inode, 2);
-            removeTag(dbConnection, inode);
-
-            decNlink(dbConnection, parent);
-
-            removeInode(dbConnection, inode);
-        }
+        return true;
     }
 
-    private void removeFile(Connection dbConnection, FsInode parent, FsInode inode, String name) throws ChimeraFsException, SQLException {
+    private boolean removeFile(FsInode parent, FsInode inode, String name) throws ChimeraFsException {
 
-        boolean isLast = inode.stat().getNlink() == 1;
-
-        if (removeEntryInParent(dbConnection, parent, name)) {
-
-            decNlink(dbConnection, inode);
-
-            if (isLast) {
-                removeInode(dbConnection, inode);
-            }
-
-            /* During bulk deletion of files in the same directory,
-             * updating the parent inode is often a contention point. The
-             * link count on the parent is updated last to reduce the time
-             * in which the directory inode is locked by the database.
-             */
-            decNlink(dbConnection, parent);
+        if (!removeEntryInParent(parent, name, inode)) {
+            return false;
         }
+        decNlink(inode);
+
+        removeInodeIfUnlinked(inode);
+
+        /* During bulk deletion of files in the same directory,
+         * updating the parent inode is often a contention point. The
+         * link count on the parent is updated last to reduce the time
+         * in which the directory inode is locked by the database.
+         */
+        decNlink(parent);
+
+        return true;
     }
 
-    void remove(Connection dbConnection, FsInode parent, FsInode inode) throws ChimeraFsException, SQLException {
-
+    void remove(FsInode inode) {
         if (inode.isDirectory()) {
+            removeTag(inode);
+        }
 
-            Stat dirStat = inode.statCache();
-            if (dirStat.getNlink() > 2) {
-                throw new DirNotEmptyHimeraFsException("directory is not empty");
-            }
-            removeEntryInParent(dbConnection, inode, ".");
-            removeEntryInParent(dbConnection, inode, "..");
-            // decrease reference count ( '.' , '..', and in parent directory ,
-            // and inode itself)
-            decNlink(dbConnection, inode, 2);
-            removeTag(dbConnection, inode);
+        /* Updating the inode effectively blocks anybody else from changing it and thus also from
+         * adding more links.
+         */
+        _jdbc.update("UPDATE t_inodes SET inlink=0 WHERE inumber=?", inode.ino());
 
+        /* Remove all hard-links. */
+        List<Long> parents =
+                _jdbc.queryForList(
+                        "SELECT iparent FROM t_dirs WHERE ichild=?",
+                        Long.class, inode.ino());
+        for (Long parent : parents) {
+            decNlink(new FsInode(inode.getFs(), parent));
+        }
+        int n = _jdbc.update("DELETE FROM t_dirs WHERE ichild=?", inode.ino());
+        if (n != parents.size()) {
+            throw new JdbcUpdateAffectedIncorrectNumberOfRowsException("DELETE FROM t_dirs WHERE ichild=?", parents.size(), n);
+        }
+
+        removeInodeIfUnlinked(inode);
+    }
+
+    public Stat stat(String id) {
+        return _jdbc.query(
+                "SELECT * FROM t_inodes WHERE ipnfsid=?",
+                ps -> ps.setString(1, id),
+                rs -> rs.next() ? toStat(rs) : null);
+    }
+
+    public Stat stat(FsInode inode) {
+        return stat(inode, 0);
+    }
+
+    public Stat stat(FsInode inode, int level) {
+        if (level == 0) {
+            return _jdbc.query(
+                    "SELECT * FROM t_inodes WHERE inumber=?",
+                    ps -> ps.setLong(1, inode.ino()),
+                    rs -> rs.next() ? toStat(rs) : null);
         } else {
-            decNlink(dbConnection, inode);
-
-            /*
-             * TODO: put into trash
-             */
-            for (int i = 1; i <= 7; i++) {
-                removeInodeLevel(dbConnection, inode, i);
-            }
+            return _jdbc.query(
+                    "SELECT * FROM t_level_" + level + " WHERE inumber=?",
+                    ps -> ps.setLong(1, inode.ino()),
+                    rs -> rs.next() ? toStatLevel(rs) : null);
         }
-
-        removeEntryInParentByID(dbConnection, parent, inode);
-        decNlink(dbConnection, parent);
-
-        removeStorageInfo(dbConnection, inode);
-
-        removeInode(dbConnection, inode);
     }
 
-    public Stat stat(Connection dbConnection, FsInode inode) throws SQLException {
-        return stat(dbConnection, inode, 0);
-    }
-    private static final String sqlStat = "SELECT isize,inlink,itype,imode,iuid,igid,iatime,ictime,imtime,icrtime,igeneration FROM t_inodes WHERE ipnfsid=?";
-
-    public Stat stat(Connection dbConnection, FsInode inode, int level) throws SQLException {
-
-        Stat ret = null;
-        PreparedStatement stStatInode = null;
-        ResultSet statResult = null;
-        try {
-
-            if (level == 0) {
-                stStatInode = dbConnection.prepareStatement(sqlStat);
-
-            } else {
-                stStatInode = dbConnection.prepareStatement("SELECT isize,inlink,imode,iuid,igid,iatime,ictime,imtime FROM t_level_" + level + " WHERE ipnfsid=?");
-            }
-
-            stStatInode.setString(1, inode.toString());
-            statResult = stStatInode.executeQuery();
-
-            if (statResult.next()) {
-                ret = new Stat();
-                int inodeType;
-
-                if (level == 0) {
-                    inodeType = statResult.getInt("itype");
-                    ret.setCrTime(statResult.getTimestamp("icrtime").getTime());
-                    ret.setGeneration(statResult.getLong("igeneration"));
-                } else {
-                    inodeType = UnixPermission.S_IFREG;
-                    ret.setCrTime(statResult.getTimestamp("imtime").getTime());
-                    ret.setGeneration(0);
-                }
-
-                ret.setSize(statResult.getLong("isize"));
-                ret.setATime(statResult.getTimestamp("iatime").getTime());
-                ret.setCTime(statResult.getTimestamp("ictime").getTime());
-                ret.setMTime(statResult.getTimestamp("imtime").getTime());
-                ret.setUid(statResult.getInt("iuid"));
-                ret.setGid(statResult.getInt("igid"));
-                ret.setMode(statResult.getInt("imode") | inodeType);
-                ret.setNlink(statResult.getInt("inlink"));
-                ret.setIno((int) inode.id());
-                ret.setDev(17);
-		ret.setRdev(13);
-            }
-
-        } finally {
-            SqlHelper.tryToClose(statResult);
-            SqlHelper.tryToClose(stStatInode);
+    private Stat toStat(ResultSet rs) throws SQLException
+    {
+        Stat stat = new Stat();
+        stat.setIno(rs.getLong("inumber"));
+        stat.setId(rs.getString("ipnfsid"));
+        stat.setCrTime(rs.getTimestamp("icrtime").getTime());
+        stat.setGeneration(rs.getLong("igeneration"));
+        int rp = rs.getInt("iretention_policy");
+        if (!rs.wasNull()) {
+            stat.setRetentionPolicy(RetentionPolicy.valueOf(rp));
         }
+        int al = rs.getInt("iaccess_latency");
+        if (!rs.wasNull()) {
+            stat.setAccessLatency(AccessLatency.valueOf(al));
+        }
+        stat.setSize(rs.getLong("isize"));
+        stat.setATime(rs.getTimestamp("iatime").getTime());
+        stat.setCTime(rs.getTimestamp("ictime").getTime());
+        stat.setMTime(rs.getTimestamp("imtime").getTime());
+        stat.setUid(rs.getInt("iuid"));
+        stat.setGid(rs.getInt("igid"));
+        stat.setMode(rs.getInt("imode") | rs.getInt("itype"));
+        stat.setNlink(rs.getInt("inlink"));
+        stat.setDev(17);
+        stat.setRdev(13);
+        return stat;
+    }
 
-        return ret;
+    private Stat toStatLevel(ResultSet rs) throws SQLException
+    {
+        Stat stat = new Stat();
+        stat.setIno(rs.getLong("inumber"));
+        stat.setCrTime(rs.getTimestamp("imtime").getTime());
+        stat.setGeneration(0);
+        stat.setSize(rs.getLong("isize"));
+        stat.setATime(rs.getTimestamp("iatime").getTime());
+        stat.setCTime(rs.getTimestamp("ictime").getTime());
+        stat.setMTime(rs.getTimestamp("imtime").getTime());
+        stat.setUid(rs.getInt("iuid"));
+        stat.setGid(rs.getInt("igid"));
+        stat.setMode(rs.getInt("imode") | UnixPermission.S_IFREG);
+        stat.setNlink(rs.getInt("inlink"));
+        stat.setDev(17);
+        stat.setRdev(13);
+        return stat;
     }
 
     /**
@@ -382,205 +431,135 @@ class FsSqlDriver {
      * as well modification time and reference count of newly created directory are updated.
      *
      *
-     * @param dbConnection
      * @param parent
      * @param name
      * @param owner
      * @param group
      * @param mode
      * @throws ChimeraFsException
-     * @throws SQLException
      * @return
      */
-    FsInode mkdir(Connection dbConnection, FsInode parent, String name, int owner, int group, int mode) throws ChimeraFsException, SQLException {
-
-        // if exist table parent_dir create an entry
-
-        FsInode inode;
-
-        if (parent.isDirectory()) {
-
-            inode = new FsInode(parent.getFs());
-
-            // as soon as directory is created nlink == 2
-            createInode(dbConnection, inode, UnixPermission.S_IFDIR, owner, group, mode, 2);
-            createEntryInParent(dbConnection, parent, name, inode);
-
-            // increase parent nlink only
-            incNlink(dbConnection, parent);
-
-            createEntryInParent(dbConnection, inode, ".", inode);
-            createEntryInParent(dbConnection, inode, "..", parent);
-
-        } else {
-            throw new NotDirChimeraException(parent);
-        }
-
-        return inode;
+    FsInode mkdir(FsInode parent, String name, int owner, int group, int mode) {
+        return createInodeInParent(parent, name, FsInode.generateNewID(), owner, group, mode,
+                                   UnixPermission.S_IFDIR, 2, 512);
     }
-    private static final String sqlMove = "UPDATE t_dirs SET iparent=?, iname=? WHERE iparent=? AND iname=?";
-    private static final String sqlSetParent = "UPDATE t_dirs SET ipnfsid=? WHERE iparent=? AND iname='..'";
 
     /**
-     * move source from srcDir into dest in destDir.
-     * The reference counts if srcDir and destDir is updates.
+     * Move/rename inode from source in srcDir to dest in destDir. The reference counts
+     * of srcDir and destDir are updated.
      *
-     * @param dbConnection
      * @param srcDir
      * @param source
      * @param destDir
      * @param dest
-     * @throws SQLException
+     * @param inode
+     * @return true if moved, false if source did not exist
      */
-    void move(Connection dbConnection, FsInode srcDir, String source, FsInode destDir, String dest) throws SQLException, ChimeraFsException {
-
-        PreparedStatement stMove = null;
-        PreparedStatement stParentMove = null;
-
-        try {
-
-            FsInode srcInode = inodeOf(dbConnection, srcDir, source);
-            stMove = dbConnection.prepareStatement(sqlMove);
-
-            stMove.setString(1, destDir.toString());
-            stMove.setString(2, dest);
-            stMove.setString(3, srcDir.toString());
-            stMove.setString(4, source);
-            stMove.executeUpdate();
-
-            /*
-             * if moving a directory, point '..' to the new parent
-             */
-            Stat stat = stat(dbConnection, srcInode);
-            if ( (stat.getMode() & UnixPermission.F_TYPE) == UnixPermission.S_IFDIR) {
-                stParentMove = dbConnection.prepareStatement(sqlSetParent);
-                stParentMove.setString(1, destDir.toString());
-                stParentMove.setString(2, srcInode.toString());
-                stParentMove.executeUpdate();
-            }
-
-        } finally {
-            SqlHelper.tryToClose(stMove);
-            SqlHelper.tryToClose(stParentMove);
+    boolean rename(FsInode inode, FsInode srcDir, String source, FsInode destDir, String dest) {
+        String moveLink = "UPDATE t_dirs SET iparent=?, iname=? WHERE iparent=? AND iname=? AND ichild=?";
+        int n = _jdbc.update(moveLink,
+                             ps -> {
+                                 ps.setLong(1, destDir.ino());
+                                 ps.setString(2, dest);
+                                 ps.setLong(3, srcDir.ino());
+                                 ps.setString(4, source);
+                                 ps.setLong(5, inode.ino());
+                             });
+        if (n == 0) {
+            return false;
+        }
+        if (n > 1) {
+            throw new JdbcUpdateAffectedIncorrectNumberOfRowsException(moveLink, 1, n);
         }
 
+        if (!srcDir.equals(destDir)) {
+            incNlink(destDir);
+            decNlink(srcDir);
+        } else {
+            incNlink(srcDir, 0);
+        }
+        return true;
     }
-    private static final String sqlInodeOf = "SELECT ipnfsid FROM t_dirs WHERE iname=? AND iparent=?";
 
     /**
      * return the inode of path in directory. In case of pnfs magic commands ( '.(' )
      * command specific inode is returned.
      *
-     * @param dbConnection
      * @param parent
      * @param name
-     * @throws SQLException
      * @return null if path is not found
      */
-    FsInode inodeOf(Connection dbConnection, FsInode parent, String name) throws SQLException {
-
-        FsInode inode = null;
-        String id = null;
-        PreparedStatement stGetInodeByName = null;
-
-        ResultSet result = null;
-        try {
-
-            stGetInodeByName = dbConnection.prepareStatement(sqlInodeOf);
-            stGetInodeByName.setString(1, name);
-            stGetInodeByName.setString(2, parent.toString());
-
-            result = stGetInodeByName.executeQuery();
-
-            if (result.next()) {
-                id = result.getString("ipnfsid");
+    FsInode inodeOf(FsInode parent, String name, StatCacheOption stat) {
+        switch (name) {
+        case ".":
+            return parent.isDirectory() ? parent : null;
+        case "..":
+            if (!parent.isDirectory()) {
+                return null;
             }
-
-        } finally {
-            SqlHelper.tryToClose(result);
-            SqlHelper.tryToClose(stGetInodeByName);
+            FsInode dir = parent.getParent();
+            return (dir == null) ? parent : dir;
+        default:
+            if (stat == STAT) {
+                return _jdbc.query(
+                        "SELECT c.* FROM t_dirs d JOIN t_inodes c ON d.ichild = c.inumber " +
+                        "WHERE d.iparent = ? AND d.iname = ?",
+                        ps -> {
+                            ps.setLong(1, parent.ino());
+                            ps.setString(2, name);
+                        },
+                        rs -> rs.next() ? new FsInode(parent.getFs(), rs.getLong("inumber"),
+                                                      FsInodeType.INODE, 0, toStat(rs)) : null);
+            } else {
+                return _jdbc.query("SELECT ichild FROM t_dirs WHERE iparent=? AND iname=?",
+                                   ps -> {
+                                       ps.setLong(1, parent.ino());
+                                       ps.setString(2, name);
+                                   },
+                                   rs -> rs.next() ? new FsInode(parent.getFs(), rs.getLong("ichild")) : null);
+            }
         }
-
-        if (id != null) {
-            inode = new FsInode(parent.getFs(), id);
-            inode.setParent(parent);
-        }
-        return inode;
     }
-    private static final String sqlInode2Path_name = "SELECT iname FROM t_dirs WHERE ipnfsid=? AND iparent=? and iname !='.' and iname != '..'";
-    private static final String sqlInode2Path_inode = "SELECT iparent FROM t_dirs WHERE ipnfsid=?  and iname != '.' and iname != '..'";
 
     /**
      *
      * return the path associated with inode, starting from root of the tree.
      * in case of hard link, one of the possible paths is returned
      *
-     * @param dbConnection
      * @param inode
      * @param startFrom defined the "root"
-     * @throws SQLException
      * @return
      */
-    String inode2path(Connection dbConnection, FsInode inode, FsInode startFrom, boolean inclusive) throws SQLException {
-
-        String path = null;
-        PreparedStatement ps = null;
-
-        try {
-
-            List<String> pList = new ArrayList<>();
-            String parentId = getParentOf(dbConnection, inode).toString();
-            String elementId = inode.toString();
-
-            boolean done = false;
-            do {
-
-                ps = dbConnection.prepareStatement(sqlInode2Path_name);
-                ps.setString(1, elementId);
-                ps.setString(2, parentId);
-
-                ResultSet pSearch = ps.executeQuery();
-                if (pSearch.next()) {
-                    pList.add(pSearch.getString("iname"));
-                }
-                elementId = parentId;
-
-                SqlHelper.tryToClose(ps);
-                if (inclusive && elementId.equals(startFrom.toString())) {
-                    done = true;
-                }
-
-                ps = dbConnection.prepareStatement(sqlInode2Path_inode);
-                ps.setString(1, parentId);
-
-                pSearch = ps.executeQuery();
-
-                if (pSearch.next()) {
-                    parentId = pSearch.getString("iparent");
-                }
-                ps.close();
-
-                if (!inclusive && parentId.equals(startFrom.toString())) {
-                    done = true;
-                }
-            } while (!done);
-
-
-            StringBuilder sb = new StringBuilder();
-
-            for (int i = pList.size(); i > 0; i--) {
-                sb.append("/").append(pList.get(i - 1));
-            }
-
-            path = sb.toString();
-
-        } finally {
-            SqlHelper.tryToClose(ps);
+    String inode2path(FsInode inode, FsInode startFrom) {
+        if (inode.equals(startFrom)) {
+            return "/";
         }
 
-        return path;
+        try {
+            List<String> pList = new ArrayList<>();
+            long root = startFrom.ino();
+            long elementId = inode.ino();
+            do {
+                Map<String, Object> map = _jdbc.queryForMap(
+                        "SELECT iparent, iname FROM t_dirs WHERE ichild=?", elementId);
+                pList.add((String) map.get("iname"));
+                elementId = (long) map.get("iparent");
+            } while (elementId != root);
+            return Lists.reverse(pList).stream().collect(Collectors.joining("/", "/", ""));
+        } catch (IncorrectResultSizeDataAccessException e) {
+            return "";
+        }
     }
-    private static final String sqlCreateInode = "INSERT INTO t_inodes VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)";
+
+    FsInode createInodeInParent(FsInode parent, String name, String id, int owner, int group, int mode,
+                                int type, int nlink, long size)
+    {
+        Stat stat = createInode(id, type, owner, group, mode, nlink, size);
+        FsInode inode = new FsInode(parent.getFs(), stat.getIno(), FsInodeType.INODE, 0, stat);
+        createEntryInParent(parent, name, inode);
+        incNlink(parent);
+        return inode;
+    }
 
     /**
      *
@@ -588,1573 +567,910 @@ class FsSqlDriver {
      * for optimization, initial value of reference count may be defined.
      * for newly created files , file size is zero. For directories 512.
      *
-     * @param dbConnection
-     * @param inode
+     * @param id
      * @param uid
      * @param gid
      * @param mode
      * @param nlink
-     * @throws SQLException
      */
-    public void createInode(Connection dbConnection, FsInode inode, int type, int uid, int gid, int mode, int nlink) throws SQLException {
+    Stat createInode(String id, int type, int uid, int gid, int mode, int nlink, long size) {
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        _jdbc.update(
+                con -> {
+                    PreparedStatement ps = con.prepareStatement(
+                            "INSERT INTO t_inodes (ipnfsid,itype,imode,inlink,iuid,igid,isize,iio," +
+                            "ictime,iatime,imtime,icrtime,igeneration) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            Statement.RETURN_GENERATED_KEYS);
+                    ps.setString(1, id);
+                    ps.setInt(2, type);
+                    ps.setInt(3, mode & UnixPermission.S_PERMS);
+                    ps.setInt(4, nlink);
+                    ps.setInt(5, uid);
+                    ps.setInt(6, gid);
+                    ps.setLong(7, size);
+                    ps.setInt(8, _ioMode);
+                    ps.setTimestamp(9, now);
+                    ps.setTimestamp(10, now);
+                    ps.setTimestamp(11, now);
+                    ps.setTimestamp(12, now);
+                    ps.setLong(13, 0);
+                    return ps;
+                }, keyHolder);
 
-        PreparedStatement stCreateInode = null;
+        Stat stat = new Stat();
+        stat.setIno((Long) keyHolder.getKeys().get("inumber"));
+        stat.setId(id);
+        stat.setCrTime(now.getTime());
+        stat.setGeneration(0);
+        stat.setSize(size);
+        stat.setATime(now.getTime());
+        stat.setCTime(now.getTime());
+        stat.setMTime(now.getTime());
+        stat.setUid(uid);
+        stat.setGid(gid);
+        stat.setMode(mode & UnixPermission.S_PERMS | type);
+        stat.setNlink(nlink);
+        stat.setDev(17);
+        stat.setRdev(13);
 
-        try {
-
-            // default inode - nlink =1, size=0 ( 512 if directory), IO not allowed
-
-            stCreateInode = dbConnection.prepareStatement(sqlCreateInode);
-
-            Timestamp now = new Timestamp(System.currentTimeMillis());
-
-            stCreateInode.setString(1, inode.toString());
-            stCreateInode.setInt(2, type);
-            stCreateInode.setInt(3, mode & UnixPermission.S_PERMS);
-            stCreateInode.setInt(4, nlink);
-            stCreateInode.setInt(5, uid);
-            stCreateInode.setInt(6, gid);
-            stCreateInode.setLong(7, (type == UnixPermission.S_IFDIR) ? 512 : 0);
-            stCreateInode.setInt(8, _ioMode);
-            stCreateInode.setTimestamp(9, now);
-            stCreateInode.setTimestamp(10, now);
-            stCreateInode.setTimestamp(11, now);
-            stCreateInode.setTimestamp(12, now);
-            stCreateInode.setLong(13, 0);
-
-            stCreateInode.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stCreateInode);
-        }
-
+        return stat;
     }
 
     /**
      *
      * creates an entry in t_level_x table
      *
-     * @param dbConnection
      * @param inode
      * @param uid
      * @param gid
      * @param mode
      * @param level
-     * @throws SQLException
      * @return
      */
-    FsInode createLevel(Connection dbConnection, FsInode inode, int uid, int gid, int mode, int level) throws SQLException {
-
-        PreparedStatement stCreateInodeLevel = null;
-
-        try {
-
-            Timestamp now = new Timestamp(System.currentTimeMillis());
-            stCreateInodeLevel = dbConnection.prepareStatement("INSERT INTO t_level_" + level + " VALUES(?,?,1,?,?,0,?,?,?, NULL)");
-
-            stCreateInodeLevel.setString(1, inode.toString());
-            stCreateInodeLevel.setInt(2, mode);
-            stCreateInodeLevel.setInt(3, uid);
-            stCreateInodeLevel.setInt(4, gid);
-            stCreateInodeLevel.setTimestamp(5, now);
-            stCreateInodeLevel.setTimestamp(6, now);
-            stCreateInodeLevel.setTimestamp(7, now);
-            stCreateInodeLevel.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stCreateInodeLevel);
-        }
-
-        return new FsInode(inode.getFs(), inode.toString(), level);
-    }
-    private static final String sqlRemoveInode = "DELETE FROM t_inodes WHERE ipnfsid=? AND inlink = 0";
-
-    boolean removeInode(Connection dbConnection, FsInode inode) throws SQLException {
-        int rc = 0;
-        PreparedStatement stRemoveInode = null; //remove inode from t_inodes
-
-        try {
-
-            stRemoveInode = dbConnection.prepareStatement(sqlRemoveInode);
-
-            stRemoveInode.setString(1, inode.toString());
-
-            rc = stRemoveInode.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stRemoveInode);
-        }
-
-        return rc > 0;
+    FsInode createLevel(FsInode inode, int uid, int gid, int mode, int level) {
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        _jdbc.update("INSERT INTO t_level_" + level + "(inumber,imode,inlink,iuid,igid,isize,ictime,iatime,imtime,ifiledata) VALUES(?,?,1,?,?,0,?,?,?, NULL)",
+                     ps -> {
+                         ps.setLong(1, inode.ino());
+                         ps.setInt(2, mode);
+                         ps.setInt(3, uid);
+                         ps.setInt(4, gid);
+                         ps.setTimestamp(5, now);
+                         ps.setTimestamp(6, now);
+                         ps.setTimestamp(7, now);
+                     });
+        Stat stat = new Stat();
+        stat.setCrTime(now.getTime());
+        stat.setGeneration(0);
+        stat.setSize(0);
+        stat.setATime(now.getTime());
+        stat.setCTime(now.getTime());
+        stat.setMTime(now.getTime());
+        stat.setUid(uid);
+        stat.setGid(gid);
+        stat.setMode(mode | UnixPermission.S_IFREG);
+        stat.setNlink(1);
+        stat.setIno(inode.ino());
+        stat.setDev(17);
+        stat.setRdev(13);
+        return new FsInode(inode.getFs(), inode.ino(), FsInodeType.INODE, level, stat);
     }
 
-    boolean removeInodeLevel(Connection dbConnection, FsInode inode, int level) throws
-                                                                                SQLException {
-
-        int rc = 0;
-        PreparedStatement stRemoveInodeLevel = null;
-        try {
-
-            stRemoveInodeLevel = dbConnection.prepareStatement("DELETE FROM t_level_" + level + " WHERE ipnfsid=?");
-            stRemoveInodeLevel.setString(1, inode.toString());
-            rc = stRemoveInodeLevel.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stRemoveInodeLevel);
+    boolean removeInodeIfUnlinked(FsInode inode) {
+        List<String> ids
+                = _jdbc.queryForList("SELECT ipnfsid FROM t_inodes WHERE inumber=? AND inlink=0 FOR UPDATE",
+                                     String.class, inode.ino());
+        if (ids.isEmpty()) {
+            return false;
         }
+        if (ids.size() > 1) {
+            throw new IncorrectResultSizeDataAccessException(1, ids.size());
+        }
+        String id = ids.get(0);
+        _jdbc.update("INSERT INTO t_locationinfo_trash (ipnfsid,itype,ilocation,ipriority,ictime,iatime,istate) " +
+                     "(SELECT ?,l.itype,l.ilocation,l.ipriority,l.ictime,l.iatime,l.istate " +
+                     "FROM t_locationinfo l WHERE l.inumber=?)",
+                     ps -> {
+                         ps.setString(1, id);
+                         ps.setLong(2, inode.ino());
+                     });
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        _jdbc.update(
+                "INSERT INTO t_locationinfo_trash (ipnfsid,itype,ilocation,ipriority,ictime,iatime,istate) VALUES (?,2,'',0,?,?,1)",
+                ps -> {
+                    ps.setString(1, id);
+                    ps.setTimestamp(2, now);
+                    ps.setTimestamp(3, now);
+                });
+        _jdbc.update("DELETE FROM t_inodes WHERE inumber=?", inode.ino());
+        return true;
+    }
 
-        return rc > 0;
+    boolean removeInodeLevel(FsInode inode, int level) {
+        return _jdbc.update("DELETE FROM t_level_" + level + " WHERE inumber=?", inode.ino()) > 0;
     }
 
     /**
      * increase inode reference count by 1;
      * the same as incNlink(dbConnection, inode, 1)
      *
-     * @param dbConnection
      * @param inode
-     * @throws SQLException
      */
-    void incNlink(Connection dbConnection, FsInode inode) throws SQLException {
-        incNlink(dbConnection, inode, 1);
+    void incNlink(FsInode inode) {
+        incNlink(inode, 1);
     }
-    private static final String sqlIncNlink = "UPDATE t_inodes SET inlink=inlink +?,imtime=?,ictime=?,igeneration=igeneration+1 WHERE ipnfsid=?";
 
     /**
      * increases the reference count of the inode by delta
      *
-     * @param dbConnection
      * @param inode
      * @param delta
-     * @throws SQLException
      */
-    void incNlink(Connection dbConnection, FsInode inode, int delta) throws SQLException {
-
-        PreparedStatement stIncNlinkCount = null; // increase nlink count of the inode
+    void incNlink(FsInode inode, int delta) {
         Timestamp now = new Timestamp(System.currentTimeMillis());
-        try {
-            stIncNlinkCount = dbConnection.prepareStatement(sqlIncNlink);
-
-            stIncNlinkCount.setInt(1, delta);
-            stIncNlinkCount.setTimestamp(2, now);
-            stIncNlinkCount.setTimestamp(3, now);
-            stIncNlinkCount.setString(4, inode.toString());
-
-            stIncNlinkCount.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stIncNlinkCount);
-        }
-
+        _jdbc.update("UPDATE t_inodes SET inlink=inlink +?,imtime=?,ictime=?,igeneration=igeneration+1 WHERE inumber=?",
+                     ps -> {
+                         ps.setInt(1, delta);
+                         ps.setTimestamp(2, now);
+                         ps.setTimestamp(3, now);
+                         ps.setLong(4, inode.ino());
+                     });
     }
 
     /**
      *  decreases inode reverence count by 1.
      *  the same as decNlink(dbConnection, inode, 1)
      *
-     * @param dbConnection
      * @param inode
-     * @throws SQLException
      */
-    void decNlink(Connection dbConnection, FsInode inode) throws SQLException {
-        decNlink(dbConnection, inode, 1);
+    void decNlink(FsInode inode) {
+        decNlink(inode, 1);
     }
-    private static final String sqlDecNlink = "UPDATE t_inodes SET inlink=inlink -?,imtime=?,ictime=?,igeneration=igeneration+1 WHERE ipnfsid=?";
 
     /**
      * decreases inode reference count by delta
      *
-     * @param dbConnection
      * @param inode
      * @param delta
-     * @throws SQLException
      */
-    void decNlink(Connection dbConnection, FsInode inode, int delta) throws SQLException {
-
-        PreparedStatement stDecNlinkCount = null; // decrease nlink count of the inode
+    void decNlink(FsInode inode, int delta) {
         Timestamp now = new Timestamp(System.currentTimeMillis());
-        try {
-
-            stDecNlinkCount = dbConnection.prepareStatement(sqlDecNlink);
-            stDecNlinkCount.setInt(1, delta);
-            stDecNlinkCount.setTimestamp(2, now);
-            stDecNlinkCount.setTimestamp(3, now);
-            stDecNlinkCount.setString(4, inode.toString());
-
-            stDecNlinkCount.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stDecNlinkCount);
-        }
-
+        _jdbc.update("UPDATE t_inodes SET inlink=inlink -?,imtime=?,ictime=?,igeneration=igeneration+1 WHERE inumber=?",
+                     ps -> {
+                         ps.setInt(1, delta);
+                         ps.setTimestamp(2, now);
+                         ps.setTimestamp(3, now);
+                         ps.setLong(4, inode.ino());
+                     });
     }
-    private static final String sqlCreateEntryInParent = "INSERT INTO t_dirs VALUES(?,?,?)";
 
     /**
      *
      * creates an entry name for the inode in the directory parent.
      * parent's reference count is not increased
      *
-     * @param dbConnection
      * @param parent
      * @param name
      * @param inode
-     * @throws SQLException
      */
-    void createEntryInParent(Connection dbConnection, FsInode parent, String name, FsInode inode) throws SQLException {
-
-        PreparedStatement stInserIntoParent = null;
-        try {
-
-            stInserIntoParent = dbConnection.prepareStatement(sqlCreateEntryInParent);
-            stInserIntoParent.setString(1, parent.toString());
-            stInserIntoParent.setString(2, name);
-            stInserIntoParent.setString(3, inode.toString());
-            stInserIntoParent.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stInserIntoParent);
-        }
-
+    void createEntryInParent(FsInode parent, String name, FsInode inode)
+    {
+        _jdbc.update("INSERT INTO t_dirs (iparent,ichild,iname) VALUES(?,?,?)",
+                     ps -> {
+                         ps.setLong(1, parent.ino());
+                         ps.setLong(2, inode.ino());
+                         ps.setString(3, name);
+                     });
     }
-    private static final String sqlRemoveEntryInParentByID = "DELETE FROM t_dirs WHERE ipnfsid=? AND iparent=?";
 
-    void removeEntryInParentByID(Connection dbConnection, FsInode parent, FsInode inode) throws SQLException {
-
-        PreparedStatement stRemoveFromParentById = null; // remove entry from parent
-        try {
-
-            stRemoveFromParentById = dbConnection.prepareStatement(sqlRemoveEntryInParentByID);
-            stRemoveFromParentById.setString(1, inode.toString());
-            stRemoveFromParentById.setString(2, parent.toString());
-
-            stRemoveFromParentById.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stRemoveFromParentById);
-        }
-
+    private boolean removeEntryInParent(FsInode parent, String name, FsInode child) {
+        return _jdbc.update("DELETE FROM t_dirs WHERE iname=? AND iparent=? AND ichild=?",
+                            name, parent.ino(), child.ino()) > 0;
     }
-    private static final String sqlRemoveEntryInParentByName = "DELETE FROM t_dirs WHERE iname=? AND iparent=?";
-
-    boolean removeEntryInParent(Connection dbConnection, FsInode parent, String name) throws SQLException {
-        boolean removed;
-        PreparedStatement stRemoveFromParentByName = null; // remove entry from parent
-        try {
-
-            stRemoveFromParentByName = dbConnection.prepareStatement(sqlRemoveEntryInParentByName);
-            stRemoveFromParentByName.setString(1, name);
-            stRemoveFromParentByName.setString(2, parent.toString());
-
-            removed = stRemoveFromParentByName.executeUpdate() > 0;
-
-        } finally {
-            SqlHelper.tryToClose(stRemoveFromParentByName);
-        }
-        return removed;
-    }
-    private static final String sqlGetParentOf = "SELECT iparent FROM t_dirs WHERE ipnfsid=? AND iname != '.' and iname != '..'";
 
     /**
      *
      * return a parent of inode. In case of hard links, one of the parents is returned
      *
-     * @param dbConnection
      * @param inode
-     * @throws SQLException
      * @return
      */
-    FsInode getParentOf(Connection dbConnection, FsInode inode) throws SQLException {
-
-        FsInode parent = null;
-        ResultSet result = null;
-        PreparedStatement stGetParentId = null;
-        try {
-
-            stGetParentId = dbConnection.prepareStatement(sqlGetParentOf);
-            stGetParentId.setString(1, inode.toString());
-
-            result = stGetParentId.executeQuery();
-
-            if (result.next()) {
-                parent = new FsInode(inode.getFs(), result.getString("iparent"));
-            }
-
-        } finally {
-            SqlHelper.tryToClose(result);
-            SqlHelper.tryToClose(stGetParentId);
-        }
-
-        return parent;
-    }
-    private static final String sqlGetParentOfDirectory = "SELECT iparent FROM t_dirs WHERE ipnfsid=? AND iname!='..' AND iname !='.'";
-
-    /**
-     *
-     * return a parent of inode. In case of hard links, one of the parents is returned
-     *
-     * @param dbConnection
-     * @param inode
-     * @throws SQLException
-     * @return
-     */
-    FsInode getParentOfDirectory(Connection dbConnection, FsInode inode) throws SQLException {
-
-        FsInode parent = null;
-        ResultSet result = null;
-        PreparedStatement stGetParentId = null;
-        try {
-
-            stGetParentId = dbConnection.prepareStatement(sqlGetParentOfDirectory);
-            stGetParentId.setString(1, inode.toString());
-
-            result = stGetParentId.executeQuery();
-
-            if (result.next()) {
-                parent = new FsInode(inode.getFs(), result.getString("iparent"));
-            }
-
-        } finally {
-            SqlHelper.tryToClose(result);
-            SqlHelper.tryToClose(stGetParentId);
-        }
-
-        return parent;
-    }
-    private static final String sqlGetNameOf = "SELECT iname FROM t_dirs WHERE ipnfsid=? AND iparent=?";
-
-    /**
-     *
-     * return the the name of the inode in parent
-     *
-     * @param dbConnection
-     * @param parent
-     * @param inode
-     * @throws SQLException
-     * @return
-     */
-    String getNameOf(Connection dbConnection, FsInode parent, FsInode inode) throws SQLException {
-
-        ResultSet result = null;
-        PreparedStatement stGetName = null;
-        String name = null;
-        try {
-
-            stGetName = dbConnection.prepareStatement(sqlGetNameOf);
-            stGetName.setString(1, inode.toString());
-            stGetName.setString(2, parent.toString());
-
-            result = stGetName.executeQuery();
-
-            if (result.next()) {
-                name = result.getString("iname");
-            }
-
-        } finally {
-            SqlHelper.tryToClose(result);
-            SqlHelper.tryToClose(stGetName);
-        }
-
-        return name;
+    FsInode getParentOf(FsInode inode) {
+        return _jdbc.query(
+                "SELECT iparent FROM t_dirs WHERE ichild=?",
+                ps -> ps.setLong(1, inode.ino()),
+                rs -> rs.next() ? new FsInode(inode.getFs(), rs.getLong("iparent")) : null);
     }
 
-    private static final String sqlSetFileName = "UPDATE t_dirs SET iname=? WHERE iname=? AND iparent=?";
-
-    void setFileName(Connection dbConnection, FsInode dir, String oldName, String newName) throws SQLException, ChimeraFsException {
-
-        PreparedStatement ps = null;
-
-        try {
-
-            ps = dbConnection.prepareStatement(sqlSetFileName);
-
-            ps.setString(1, newName);
-            ps.setString(2, oldName);
-            ps.setString(3, dir.toString());
-            ps.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(ps);
-        }
+    boolean setInodeAttributes(FsInode inode, int level, Stat stat) {
+        return _jdbc.update(con -> generateAttributeUpdateStatement(con, inode, stat, level)) > 0;
     }
-
-    boolean setInodeAttributes(Connection dbConnection, FsInode inode, int level, Stat stat) throws SQLException {
-
-        PreparedStatement ps = null;
-
-        try {
-            ps = generateAttributeUpdateStatement(dbConnection, inode, stat, level);
-            return ps.executeUpdate() != 0;
-        } finally {
-            SqlHelper.tryToClose(ps);
-        }
-    }
-    private static final String sqlIsIoEnabled = "SELECT iio FROM t_inodes WHERE ipnfsid=?";
 
     /**
      * checks for IO flag of the inode. if IO enabled, regular read and write operations are allowed
      *
-     * @param dbConnection
      * @param inode
-     * @throws SQLException
      * @return
      */
-    boolean isIoEnabled(Connection dbConnection, FsInode inode) throws SQLException {
-
-        boolean ioEnabled = false;
-        ResultSet rs = null;
-        PreparedStatement stIsIoEnabled = null;
-
-        try {
-            stIsIoEnabled = dbConnection.prepareStatement(sqlIsIoEnabled);
-            stIsIoEnabled.setString(1, inode.toString());
-
-            rs = stIsIoEnabled.executeQuery();
-            if (rs.next()) {
-                ioEnabled = rs.getInt("iio") == 1;
-            }
-
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stIsIoEnabled);
-        }
-        return ioEnabled;
-
-    }
-    private static final String sqlSetInodeIo = "UPDATE t_inodes SET iio=? WHERE ipnfsid=?";
-
-    void setInodeIo(Connection dbConnection, FsInode inode, boolean enable) throws SQLException {
-
-        PreparedStatement ps = null;
-
-        try {
-
-            ps = dbConnection.prepareStatement(sqlSetInodeIo);
-            ps.setInt(1, enable ? 1 : 0);
-            ps.setString(2, inode.toString());
-
-            ps.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(ps);
-        }
+    boolean isIoEnabled(FsInode inode) {
+        /* Since we access t_inodes anyway and the cost of transferring the entire row
+         * is negligible, we fill the stat cache as a side effect.
+         */
+        return _jdbc.query("SELECT * FROM t_inodes WHERE inumber=?",
+                           ps -> ps.setLong(1, inode.ino()),
+                           rs -> {
+                               if (rs.next()) {
+                                   inode.setStatCache(toStat(rs));
+                                   return rs.getInt("iio") == 1;
+                               } else {
+                                   return false;
+                               }
+                           });
     }
 
-    int write(Connection dbConnection, FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) throws SQLException {
+    void setInodeIo(FsInode inode, boolean enable) {
+        _jdbc.update("UPDATE t_inodes SET iio=? WHERE inumber=?",
+                     ps -> {
+                         ps.setInt(1, enable ? 1 : 0);
+                         ps.setLong(2, inode.ino());
+                     });
+    }
 
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-
-        try {
-
-            if (level == 0) {
-
-                ps = dbConnection.prepareStatement("SELECT ipnfsid FROM t_inodes_data WHERE ipnfsid=?");
-                ps.setString(1, inode.toString());
-
-                rs = ps.executeQuery();
-                boolean exist = rs.next();
-                SqlHelper.tryToClose(rs);
-                SqlHelper.tryToClose(ps);
-
-                if (exist) {
-                    // entry exist, update only
-                    String writeStream = "UPDATE t_inodes_data SET ifiledata=? WHERE ipnfsid=?";
-
-                    ps = dbConnection.prepareStatement(writeStream);
-
-                    ps.setBinaryStream(1, new ByteArrayInputStream(data, offset, len), len);
-                    ps.setString(2, inode.toString());
-
-                    ps.executeUpdate();
-                    SqlHelper.tryToClose(ps);
-
-                } else {
-                    // new entry
-                    String writeStream = "INSERT INTO t_inodes_data VALUES (?,?)";
-
-                    ps = dbConnection.prepareStatement(writeStream);
-
-                    ps.setString(1, inode.toString());
-                    ps.setBinaryStream(2, new ByteArrayInputStream(data, offset, len), len);
-
-                    ps.executeUpdate();
-                    SqlHelper.tryToClose(ps);
-                }
-
-                // correct file size
-                String writeStream = "UPDATE t_inodes SET isize=? WHERE ipnfsid=?";
-
-                ps = dbConnection.prepareStatement(writeStream);
-
-                ps.setLong(1, len);
-                ps.setString(2, inode.toString());
-
-                ps.executeUpdate();
-
+    int write(FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) {
+        if (level == 0) {
+            int n = _jdbc.queryForObject("SELECT count(*) FROM t_inodes_data WHERE inumber=?",
+                                         Integer.class, inode.ino());
+            if (n > 0) {
+                // entry exist, update only
+                _jdbc.update("UPDATE t_inodes_data SET ifiledata=? WHERE inumber=?",
+                             ps -> {
+                                 ps.setBinaryStream(1, new ByteArrayInputStream(data, offset, len), len);
+                                 ps.setLong(2, inode.ino());
+                             });
             } else {
-
-                // if level does not exist, create it
-
-                if (stat(dbConnection, inode, level) == null) {
-                    createLevel(dbConnection, inode, 0, 0, 644, level);
-                }
-
-                String writeStream = "UPDATE t_level_" + level + " SET ifiledata=?,isize=? WHERE ipnfsid=?";
-                ps = dbConnection.prepareStatement(writeStream);
-
-                ps.setBinaryStream(1, new ByteArrayInputStream(data, offset, len), len);
-                ps.setLong(2, len);
-                ps.setString(3, inode.toString());
-
-                ps.executeUpdate();
+                // new entry
+                _jdbc.update("INSERT INTO t_inodes_data (inumber,ifiledata) VALUES (?,?)",
+                             ps -> {
+                                 ps.setLong(1, inode.ino());
+                                 ps.setBinaryStream(2, new ByteArrayInputStream(data, offset, len), len);
+                             });
             }
 
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(ps);
+            // correct file size
+            _jdbc.update("UPDATE t_inodes SET isize=? WHERE inumber=?",
+                         ps -> {
+                             ps.setLong(1, len);
+                             ps.setLong(2, inode.ino());
+                         });
+        } else {
+            int n = _jdbc.queryForObject(
+                    "SELECT count(*) FROM t_level_" + level + " WHERE inumber=?", Integer.class, inode.ino());
+            if (n == 0) {
+                // if level does not exist, create it
+                Timestamp now = new Timestamp(System.currentTimeMillis());
+                _jdbc.update("INSERT INTO t_level_" + level + "(inumber,imode,inlink,iuid,igid,isize,ictime,iatime,imtime,ifiledata) VALUES(?,?,1,?,?,?,?,?,?,?)",
+                             ps -> {
+                                 ps.setLong(1, inode.ino());
+                                 ps.setInt(2, 644);
+                                 ps.setInt(3, 0);
+                                 ps.setInt(4, 0);
+                                 ps.setLong(5, len);
+                                 ps.setTimestamp(6, now);
+                                 ps.setTimestamp(7, now);
+                                 ps.setTimestamp(8, now);
+                                 ps.setBinaryStream(9, new ByteArrayInputStream(data, offset, len), len);
+                             });
+            } else {
+                _jdbc.update("UPDATE t_level_" + level + " SET ifiledata=?,isize=? WHERE ino=?",
+                             ps -> {
+                                 ps.setBinaryStream(1, new ByteArrayInputStream(data, offset, len), len);
+                                 ps.setLong(2, len);
+                                 ps.setLong(3, inode.ino());
+                             });
+            }
         }
 
         return len;
     }
 
-    int read(Connection dbConnection, FsInode inode, int level, long beginIndex, byte[] data, int offset, int len)
-            throws SQLException, IOHimeraFsException {
-
-        int count = 0;
-        PreparedStatement stReadFromInode = null;
-        ResultSet rs = null;
-
-        try {
-
-            if (level == 0) {
-                stReadFromInode = dbConnection.prepareStatement("SELECT ifiledata FROM t_inodes_data WHERE ipnfsid=?");
-            } else {
-                stReadFromInode = dbConnection.prepareStatement("SELECT ifiledata FROM t_level_" + level + " WHERE ipnfsid=?");
-            }
-
-            stReadFromInode.setString(1, inode.toString());
-            rs = stReadFromInode.executeQuery();
-
-            if (rs.next()) {
-                InputStream in = rs.getBinaryStream(1);
-                if (in == null) {
-                    return count;
-                }
-
-                in.skip(beginIndex);
-                while (count < len) {
-                    int c = in.read();
-                    if (c == -1) {
-                        break;
+    int read(FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) {
+        ResultSetExtractor<Integer> extractor = rs -> {
+            try {
+                int count = 0;
+                if (rs.next()) {
+                    InputStream in = rs.getBinaryStream(1);
+                    if (in != null) {
+                        in.skip(beginIndex);
+                        int c;
+                        while (((c = in.read()) != -1) && (count < len)) {
+                            data[offset + count] = (byte) c;
+                            ++count;
+                        }
                     }
-                    data[offset + count] = (byte) c;
-                    ++count;
                 }
+                return count;
+            } catch (IOException e) {
+                throw new LobRetrievalFailureException(e.getMessage(), e);
             }
-
-        } catch (IOException e) {
-            throw new IOHimeraFsException(e.toString());
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stReadFromInode);
+        };
+        if (level == 0) {
+            return _jdbc.query("SELECT ifiledata FROM t_inodes_data WHERE inumber=?", extractor, inode.ino());
+        } else {
+            return _jdbc.query("SELECT ifiledata FROM t_level_" + level + " WHERE inumber=?", extractor, inode.ino());
         }
-
-        return count;
     }
-    /////////////////////////////////////////////////////////////////////
-    ////
-    ////   Location info
-    ////
-    ////////////////////////////////////////////////////////////////////
-    private static final String sqlGetInodeLocations =
-            "SELECT ilocation,ipriority,ictime,iatime  "
-            + "FROM t_locationinfo WHERE itype=? AND ipnfsid=? AND istate=1 ORDER BY ipriority DESC";
 
     /**
      *
      *  returns a list of locations of defined type for the inode.
      *  only 'online' locations is returned
      *
-     * @param dbConnection
      * @param inode
      * @param type
-     * @throws SQLException
      * @return
      */
-    List<StorageLocatable> getInodeLocations(Connection dbConnection, FsInode inode, int type) throws
-                                                                                               SQLException {
-
-        List<StorageLocatable> locations = new ArrayList<>();
-        ResultSet rs = null;
-        PreparedStatement stGetInodeLocations = null;
-        try {
-
-            stGetInodeLocations = dbConnection.prepareStatement(sqlGetInodeLocations);
-
-            stGetInodeLocations.setInt(1, type);
-            stGetInodeLocations.setString(2, inode.toString());
-
-            rs = stGetInodeLocations.executeQuery();
-
-            while (rs.next()) {
-
-                long ctime = rs.getTimestamp("ictime").getTime();
-                long atime = rs.getTimestamp("iatime").getTime();
-                int priority = rs.getInt("ipriority");
-                String location = rs.getString("ilocation");
-
-                StorageLocatable inodeLocation = new StorageGenericLocation(type, priority, location, ctime, atime, true);
-                locations.add(inodeLocation);
-            }
-
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stGetInodeLocations);
-        }
-
-        return locations;
+    List<StorageLocatable> getInodeLocations(FsInode inode, int type) {
+        return _jdbc.query("SELECT ilocation,ipriority,ictime,iatime  FROM t_locationinfo " +
+                           "WHERE itype=? AND inumber=? AND istate=1 ORDER BY ipriority DESC",
+                           ps -> {
+                               ps.setInt(1, type);
+                               ps.setLong(2, inode.ino());
+                           },
+                           (rs, rowNum) -> {
+                               long ctime = rs.getTimestamp("ictime").getTime();
+                               long atime = rs.getTimestamp("iatime").getTime();
+                               int priority = rs.getInt("ipriority");
+                               String location = rs.getString("ilocation");
+                               return new StorageGenericLocation(type, priority, location, ctime, atime, true);
+                           });
     }
-    private static final String sqlAddInodeLocation = "INSERT INTO t_locationinfo VALUES(?,?,?,?,?,?,?)";
+
+    /**
+     *
+     *  returns a list of locations for the inode.
+     *  only 'online' locations is returned
+     *
+     * @param inode
+     * @return
+     */
+    List<StorageLocatable> getInodeLocations(FsInode inode) {
+        return _jdbc.query("SELECT itype,ilocation,ipriority,ictime,iatime FROM t_locationinfo " +
+                           "WHERE inumber=? AND istate=1 ORDER BY ipriority DESC",
+                           ps -> {
+                               ps.setLong(1, inode.ino());
+                           },
+                           (rs, rowNum) -> {
+                               int type = rs.getInt("itype");
+                               long ctime = rs.getTimestamp("ictime").getTime();
+                               long atime = rs.getTimestamp("iatime").getTime();
+                               int priority = rs.getInt("ipriority");
+                               String location = rs.getString("ilocation");
+                               return new StorageGenericLocation(type, priority, location, ctime, atime, true);
+                           });
+    }
+
 
     /**
      *
      * adds a new location for the inode
      *
-     *
-     * @param dbConnection
      * @param inode
      * @param type
      * @param location
-     * @throws SQLException
      */
-    void addInodeLocation(Connection dbConnection, FsInode inode, int type, String location) throws
-                                                                                             SQLException {
-        PreparedStatement stAddInodeLocation = null; // add a new  location in the storage system for the inode
-        try {
-
-            stAddInodeLocation = dbConnection.prepareStatement(sqlAddInodeLocation);
-
-            Timestamp now = new Timestamp(System.currentTimeMillis());
-            stAddInodeLocation.setString(1, inode.toString());
-            stAddInodeLocation.setInt(2, type);
-            stAddInodeLocation.setString(3, location);
-            stAddInodeLocation.setInt(4, 10); // default priority
-            stAddInodeLocation.setTimestamp(5, now);
-            stAddInodeLocation.setTimestamp(6, now);
-            stAddInodeLocation.setInt(7, 1); // online
-
-            stAddInodeLocation.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stAddInodeLocation);
-        }
+    void addInodeLocation(FsInode inode, int type, String location) {
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        _jdbc.update("INSERT INTO t_locationinfo (inumber,itype,ilocation,ipriority,ictime,iatime,istate) " +
+                     "(SELECT * FROM (VALUES (?,?,?,?,?,?,?)) v WHERE NOT EXISTS " +
+                     "(SELECT 1 FROM t_locationinfo WHERE inumber=? AND itype=? AND ilocation=?))",
+                     ps -> {
+                         ps.setLong(1, inode.ino());
+                         ps.setInt(2, type);
+                         ps.setString(3, location);
+                         ps.setInt(4, 10); // default priority
+                         ps.setTimestamp(5, now);
+                         ps.setTimestamp(6, now);
+                         ps.setInt(7, 1); // online
+                         ps.setLong(8, inode.ino());
+                         ps.setInt(9, type);
+                         ps.setString(10, location);
+                     });
     }
-    private static final String sqlClearInodeLocation = "DELETE FROM t_locationinfo WHERE ipnfsid=? AND itype=? AND ilocation=?";
 
     /**
      *
      *  remove the location for a inode
      *
-     * @param dbConnection
      * @param inode
      * @param type
      * @param location
-     * @throws SQLException
      */
-    void clearInodeLocation(Connection dbConnection, FsInode inode, int type, String location) throws
-                                                                                               SQLException {
-        PreparedStatement stClearInodeLocation = null; // clear a location in the storage system for the inode
-
-        try {
-            stClearInodeLocation = dbConnection.prepareStatement(sqlClearInodeLocation);
-            stClearInodeLocation.setString(1, inode.toString());
-            stClearInodeLocation.setInt(2, type);
-            stClearInodeLocation.setString(3, location);
-
-            stClearInodeLocation.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stClearInodeLocation);
-        }
+    void clearInodeLocation(FsInode inode, int type, String location) {
+        _jdbc.update("DELETE FROM t_locationinfo WHERE inumber=? AND itype=? AND ilocation=?",
+                     ps -> {
+                         ps.setLong(1, inode.ino());
+                         ps.setInt(2, type);
+                         ps.setString(3, location);
+                     });
     }
-    private static final String sqlClearInodeLocations = "DELETE FROM t_locationinfo WHERE ipnfsid=?";
 
-    /**
-     *
-     * remove all locations for a inode
-     *
-     * @param dbConnection
-     * @param inode
-     * @throws SQLException
-     */
-    void clearInodeLocations(Connection dbConnection, FsInode inode) throws
-                                                                     SQLException {
-        PreparedStatement stClearInodeLocations = null; // clear a location in the storage system for the inode
-
-        try {
-            stClearInodeLocations = dbConnection.prepareStatement(sqlClearInodeLocations);
-            stClearInodeLocations.setString(1, inode.toString());
-
-            stClearInodeLocations.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stClearInodeLocations);
-        }
+    String[] tags(FsInode inode) {
+        List<String> tags = _jdbc.queryForList("SELECT itagname FROM t_tags where inumber=?",
+                                               String.class, inode.ino());
+        return tags.toArray(new String[tags.size()]);
     }
-    /////////////////////////////////////////////////////////////////////
-    ////
-    ////   Directory tags handling
-    ////
-    ////////////////////////////////////////////////////////////////////
-    private static final String sqlTags = "SELECT itagname FROM t_tags where ipnfsid=?";
 
-    String[] tags(Connection dbConnection, FsInode inode) throws SQLException {
-
-        String[] list = null;
-        ResultSet rs = null;
-        PreparedStatement stGetTags = null;
-        try {
-
-            stGetTags = dbConnection.prepareStatement(sqlTags);
-            stGetTags.setString(1, inode.toString());
-            rs = stGetTags.executeQuery();
-
-            List<String> v = new ArrayList<>();
-
-            while (rs.next()) {
-                v.add(rs.getString("itagname"));
-            }
-            rs.close();
-
-            list = v.toArray(new String[v.size()]);
-
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stGetTags);
-        }
-
-        return list;
+    Map<String,byte[]> getAllTags(FsInode inode) {
+        Map<String,byte[]> tags = new HashMap<>();
+        _jdbc.query("SELECT t.itagname, i.ivalue, i.isize " +
+                    "FROM t_tags t JOIN t_tags_inodes i ON t.itagid = i.itagid WHERE t.inumber=?",
+                    ps -> {
+                        ps.setLong(1, inode.ino());
+                    },
+                    rs -> {
+                        try (InputStream in = rs.getBinaryStream("ivalue")) {
+                            byte[] data = new byte[Ints.saturatedCast(rs.getLong("isize"))];
+                            // we get null if filed id NULL, e.g not set
+                            if (in != null) {
+                                ByteStreams.readFully(in, data);
+                                tags.put(rs.getString("itagname"), data);
+                            }
+                        } catch (IOException e) {
+                            throw new LobRetrievalFailureException(e.getMessage(), e);
+                        }
+                    });
+        return tags;
     }
 
     /**
      * creates a new tag for the inode.
      * the inode becomes the tag origin.
      *
-     *
-     * @param dbConnection
      * @param inode
      * @param name
      * @param uid
      * @param gid
      * @param mode
-     * @throws SQLException
      */
-    void createTag(Connection dbConnection, FsInode inode, String name, int uid, int gid, int mode) throws SQLException {
-
-        String id = createTagInode(dbConnection, uid, gid, mode);
-        assignTagToDir(dbConnection, id, name, inode, false, true);
+    void createTag(FsInode inode, String name, int uid, int gid, int mode) {
+        long id = createTagInode(uid, gid, mode);
+        assignTagToDir(id, name, inode, false, true);
     }
-    private static final String sqlGetTagId = "SELECT itagid FROM t_tags WHERE ipnfsid=? AND itagname=?";
 
     /**
      * returns tag id of a tag associated with inode
      *
-     * @param dbConnection
      * @param dir
      * @param tag
-     * @throws SQLException
      * @return
      */
-    String getTagId(Connection dbConnection, FsInode dir, String tag) throws SQLException {
-        String tagId = null;
-        ResultSet rs = null;
-        PreparedStatement stGetTagId = null;
-
-        try {
-            stGetTagId = dbConnection.prepareStatement(sqlGetTagId);
-
-            stGetTagId.setString(1, dir.toString());
-            stGetTagId.setString(2, tag);
-
-            rs = stGetTagId.executeQuery();
-            if (rs.next()) {
-                tagId = rs.getString("itagid");
-            }
-
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stGetTagId);
-        }
-        return tagId;
+    Long getTagId(FsInode dir, String tag) {
+        return _jdbc.query("SELECT itagid FROM t_tags WHERE inumber=? AND itagname=?",
+                           ps -> {
+                               ps.setLong(1, dir.ino());
+                               ps.setString(2, tag);
+                           },
+                           rs -> rs.next() ? rs.getLong("itagid") : null);
     }
-    private static final String sqlCreateTagInode = "INSERT INTO t_tags_inodes VALUES(?,?,1,?,?,0,?,?,?,NULL)";
 
     /**
      *
-     *  creates a new id for a tag and sores it into t_tags_inodes table.
+     *  creates a new id for a tag and stores it into t_tags_inodes table.
      *
-     * @param dbConnection
      * @param uid
      * @param gid
      * @param mode
-     * @throws SQLException
      * @return
      */
-    String createTagInode(Connection dbConnection, int uid, int gid, int mode) throws SQLException {
+    long createTagInode(int uid, int gid, int mode) {
+        final String CREATE_TAG_INODE_WITHOUT_VALUE = "INSERT INTO t_tags_inodes (imode, inlink, iuid, igid, isize, " +
+                                                      "ictime, iatime, imtime, ivalue) VALUES (?,1,?,?,0,?,?,?,NULL)";
 
-        String id = UUID.randomUUID().toString().toUpperCase();
-        PreparedStatement stCreateTagInode = null;
-        try {
-
-            stCreateTagInode = dbConnection.prepareStatement(sqlCreateTagInode);
-
-            Timestamp now = new Timestamp(System.currentTimeMillis());
-
-            stCreateTagInode.setString(1, id);
-            stCreateTagInode.setInt(2, mode | UnixPermission.S_IFREG);
-            stCreateTagInode.setInt(3, uid);
-            stCreateTagInode.setInt(4, gid);
-            stCreateTagInode.setTimestamp(5, now);
-            stCreateTagInode.setTimestamp(6, now);
-            stCreateTagInode.setTimestamp(7, now);
-
-            stCreateTagInode.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stCreateTagInode);
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        int rc = _jdbc.update(
+                con -> {
+                    PreparedStatement ps = con.prepareStatement(
+                            CREATE_TAG_INODE_WITHOUT_VALUE, Statement.RETURN_GENERATED_KEYS);
+                    ps.setInt(1, mode | UnixPermission.S_IFREG);
+                    ps.setInt(2, uid);
+                    ps.setInt(3, gid);
+                    ps.setTimestamp(4, now);
+                    ps.setTimestamp(5, now);
+                    ps.setTimestamp(6, now);
+                    return ps;
+                }, keyHolder);
+        if (rc != 1) {
+            throw new JdbcUpdateAffectedIncorrectNumberOfRowsException(CREATE_TAG_INODE_WITHOUT_VALUE, 1, rc);
         }
-        return id;
+        return (Long) keyHolder.getKeys().get("itagid");
     }
-    private static final String sqlAssignTagToDir_update = "UPDATE t_tags SET itagid=?,isorign=? WHERE ipnfsid=? AND itagname=?";
-    private static final String sqlAssignTagToDir_add = "INSERT INTO t_tags VALUES(?,?,?,1)";
+
+    /**
+     *
+     *  creates a new id for a tag and stores it into t_tags_inodes table.
+     *
+     * @param uid
+     * @param gid
+     * @param mode
+     * @param value
+     * @return
+     */
+    long createTagInode(int uid, int gid, int mode, byte[] value) {
+        final String CREATE_TAG_INODE_WITH_VALUE = "INSERT INTO t_tags_inodes (imode, inlink, iuid, igid, isize, " +
+                                                   "ictime, iatime, imtime, ivalue) VALUES (?,1,?,?,?,?,?,?,?)";
+
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        int rc = _jdbc.update(
+                con -> {
+                    PreparedStatement ps = con.prepareStatement(
+                            CREATE_TAG_INODE_WITH_VALUE, Statement.RETURN_GENERATED_KEYS);
+                    ps.setInt(1, mode | UnixPermission.S_IFREG);
+                    ps.setInt(2, uid);
+                    ps.setInt(3, gid);
+                    ps.setLong(4, value.length);
+                    ps.setTimestamp(5, now);
+                    ps.setTimestamp(6, now);
+                    ps.setTimestamp(7, now);
+                    ps.setBinaryStream(8, new ByteArrayInputStream(value), value.length);
+                    return ps;
+                }, keyHolder);
+        if (rc != 1) {
+            throw new JdbcUpdateAffectedIncorrectNumberOfRowsException(CREATE_TAG_INODE_WITH_VALUE, 1, rc);
+        }
+        return (Long) keyHolder.getKeys().get("itagid");
+    }
 
     /**
      *
      * creates a new or update existing tag for a directory
      *
-     * @param dbConnection
      * @param tagId
      * @param tagName
      * @param dir
      * @param isUpdate
      * @param isOrign
-     * @throws SQLException
      */
-    void assignTagToDir(Connection dbConnection, String tagId, String tagName, FsInode dir, boolean isUpdate, boolean isOrign) throws SQLException {
-
-        PreparedStatement ps = null;
-        try {
-
-            if (isUpdate) {
-                ps = dbConnection.prepareStatement(sqlAssignTagToDir_update);
-
-                ps.setString(1, tagId);
-                ps.setInt(2, isOrign ? 1 : 0);
-                ps.setString(3, dir.toString());
-                ps.setString(4, tagName);
-
-            } else {
-                ps = dbConnection.prepareStatement(sqlAssignTagToDir_add);
-
-                ps.setString(1, dir.toString());
-                ps.setString(2, tagName);
-                ps.setString(3, tagId);
-            }
-
-            ps.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(ps);
+    void assignTagToDir(long tagId, String tagName, FsInode dir, boolean isUpdate, boolean isOrign) {
+        if (isUpdate) {
+            _jdbc.update("UPDATE t_tags SET itagid=?,isorign=? WHERE inumber=? AND itagname=?",
+                         ps -> {
+                             ps.setLong(1, tagId);
+                             ps.setInt(2, isOrign ? 1 : 0);
+                             ps.setLong(3, dir.ino());
+                             ps.setString(4, tagName);
+                         });
+        } else {
+            _jdbc.update("INSERT INTO t_tags (inumber, itagid, isorign, itagname) VALUES(?,?,1,?)",
+                         ps -> {
+                             ps.setLong(1, dir.ino());
+                             ps.setLong(2, tagId);
+                             ps.setString(3, tagName);
+                         });
         }
     }
-    private static final String sqlSetTag = "UPDATE t_tags_inodes SET ivalue=?, isize=?, imtime=? WHERE itagid=?";
 
-    int setTag(Connection dbConnection, FsInode inode, String tagName, byte[] data, int offset, int len) throws SQLException, ChimeraFsException {
+    int setTag(FsInode inode, String tagName, byte[] data, int offset, int len) throws ChimeraFsException {
+        long tagId;
 
-        PreparedStatement stSetTag = null;
-        try {
-
-            String tagId = getTagId(dbConnection, inode, tagName);
-
-            if (!isTagOwner(dbConnection, inode, tagName)) {
-                // tag bunching
-                Stat tagStat = statTag(dbConnection, inode, tagName);
-
-                tagId = createTagInode(dbConnection, tagStat.getUid(), tagStat.getGid(), tagStat.getMode());
-                assignTagToDir(dbConnection, tagId, tagName, inode, true, true);
-
-            }
-
-            stSetTag = dbConnection.prepareStatement(sqlSetTag);
-            stSetTag.setBinaryStream(1, new ByteArrayInputStream(data, offset, len), len);
-            stSetTag.setLong(2, len);
-            stSetTag.setTimestamp(3, new Timestamp(System.currentTimeMillis()));
-            stSetTag.setString(4, tagId);
-            stSetTag.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stSetTag);
+        if (!isTagOwner(inode, tagName)) {
+            // tag bunching
+            Stat tagStat = statTag(inode, tagName);
+            tagId = createTagInode(tagStat.getUid(), tagStat.getGid(), tagStat.getMode());
+            assignTagToDir(tagId, tagName, inode, true, true);
+        } else {
+            tagId = getTagId(inode, tagName);
         }
 
+        _jdbc.update("UPDATE t_tags_inodes SET ivalue=?, isize=?, imtime=? WHERE itagid=?",
+                     ps -> {
+                         ps.setBinaryStream(1, new ByteArrayInputStream(data, offset, len), len);
+                         ps.setLong(2, len);
+                         ps.setTimestamp(3, new Timestamp(System.currentTimeMillis()));
+                         ps.setLong(4, tagId);
+                     });
         return len;
 
     }
 
-    private static final String sqlRemoveSingleTag = "DELETE FROM t_tags WHERE ipnfsid=? AND itagname=?";
-
-    void removeTag(Connection dbConnection, FsInode dir, String tag)
-            throws SQLException {
-        PreparedStatement ps = null;
-        try {
-            ps = dbConnection.prepareStatement(sqlRemoveSingleTag);
-            ps.setString(1, dir.toString());
-            ps.setString(2, tag);
-
-            ps.executeUpdate();
-        } finally {
-            SqlHelper.tryToClose(ps);
-        }
+    void removeTag(FsInode dir, String tag) {
+        _jdbc.update("DELETE FROM t_tags WHERE inumber=? AND itagname=?", dir.ino(), tag);
     }
 
-    private static final String sqlRemoveTag = "DELETE FROM t_tags WHERE ipnfsid=?";
+    void removeTag(FsInode dir) {
+        /* Get the tag IDs of the tag links to be removed.
+         */
+        List<Long> ids = _jdbc.queryForList("SELECT itagid FROM t_tags WHERE inumber=?", Long.class, dir.ino());
+        if (!ids.isEmpty()) {
+            /* Remove the links.
+             */
+            _jdbc.update("DELETE FROM t_tags WHERE inumber=?", dir.ino());
 
-    void removeTag(Connection dbConnection, FsInode dir) throws SQLException {
-
-        PreparedStatement ps = null;
-        try {
-
-            ps = dbConnection.prepareStatement(sqlRemoveTag);
-            ps.setString(1, dir.toString());
-
-            ps.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(ps);
+            /* Remove any tag inode of of the tag links removed above, which are
+             * not referenced by any other links either.
+             *
+             * We ought to maintain the link count in the inode, but Chimera has
+             * not done so in the past. In the interest of avoiding costly schema
+             * corrections in patch level releases, the current solution queries
+             * for the existence of other links instead.
+             *
+             * The statement below relies on concurrent transactions not deleting
+             * other links to affected tag inodes. Otherwise we could come into a
+             * situation in which two concurrent transactions remove two links to
+             * the same inode, yet none of them realize that the inode is left
+             * without links (as there is another link).
+             *
+             * One way to ensure this would be to use repeatable read transaction
+             * isolation, but PostgreSQL doesn't support changing the isolation level
+             * in the middle of a transaction. Always running any operation that
+             * might call this method with repeatable read was deemed unacceptable.
+             * Another solution would be to lock the tag inode at the beginning of
+             * this method using SELECT FOR UPDATE. This would be fairly expensive
+             * way of solving this race.
+             *
+             * For now we decide to ignore the race: It seems unlikely to run into
+             * and even if one does, the consequence is merely an orphaned inode.
+             */
+            _jdbc.batchUpdate("DELETE FROM t_tags_inodes i WHERE itagid=? " +
+                              "AND NOT EXISTS (SELECT 1 FROM t_tags WHERE itagid=?)",
+                              ids, ids.size(),
+                              (ps, tagid) -> {
+                                  ps.setLong(1, tagid);
+                                  ps.setLong(2, tagid);
+                              });
         }
     }
-    private static final String sqlGetTag = "SELECT ivalue,isize FROM t_tags_inodes WHERE itagid=?";
 
     /**
      * get content of the tag associated with name for inode
      *
-     * @param dbConnection
      * @param inode
      * @param tagName
      * @param data
      * @param offset
      * @param len
-     * @throws SQLException
-     * @throws IOException
      * @return
      */
-    int getTag(Connection dbConnection, FsInode inode, String tagName, byte[] data, int offset, int len) throws SQLException, IOException {
+    int getTag(FsInode inode, String tagName, byte[] data, int offset, int len) {
+        return _jdbc.query("SELECT i.ivalue,i.isize FROM t_tags t JOIN t_tags_inodes i ON t.itagid = i.itagid " +
+                           "WHERE t.inumber=? AND t.itagname=?",
+                           ps -> {
+                               ps.setLong(1, inode.ino());
+                               ps.setString(2, tagName);
+                           },
+                           rs -> {
+                               if (rs.next()) {
+                                   try (InputStream in = rs.getBinaryStream("ivalue")) {
+                                       /* some databases (hsqldb in particular) fill a full record for
+                                        * BLOBs and on read reads a full record, which is not what we expect.
+                                        */
+                                       return ByteStreams.read(in, data, offset, Math.min(len, (int) rs.getLong("isize")));
+                                   } catch (IOException e) {
+                                       throw new LobRetrievalFailureException(e.getMessage(), e);
+                                   }
+                               }
+                               return 0;
+                           });
+    }
 
-        int count = 0;
-        ResultSet rs = null;
-        PreparedStatement stGetTag = null;
-        try {
+    Stat statTag(FsInode dir, String name) throws ChimeraFsException {
+        Long tagId = getTagId(dir, name);
 
-            String tagId = getTagId(dbConnection, inode, tagName);
-
-            stGetTag = dbConnection.prepareStatement(sqlGetTag);
-            stGetTag.setString(1, tagId);
-            rs = stGetTag.executeQuery();
-
-            if (rs.next()) {
-
-                /*
-                 * some databases (hsqldb in particular) fill a full record for
-                 * BLOBs and on read reads a full record, which is not what we expect.
-                 *
-                 */
-                try (InputStream in = rs.getBinaryStream("ivalue")) {
-                    /*
-                    * some databases (hsqldb in particular) fill a full record for
-                    * BLOBs and on read reads a full record, which is not what we expect.
-                    *
-                    */
-                    int size = Math.min(len, (int) rs.getLong("isize"));
-                    while (count < size) {
-                        int c = in.read();
-                        if (c == -1) {
-                            break;
-                        }
-                        data[offset + count] = (byte) c;
-                        ++count;
-                    }
-                }
-            }
-
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stGetTag);
+        if (tagId == null) {
+            throw new FileNotFoundHimeraFsException("tag does not exist");
         }
 
-        return count;
-    }
-    private static final String sqlStatTag = "SELECT isize,inlink,imode,iuid,igid,iatime,ictime,imtime FROM t_tags_inodes WHERE itagid=?";
-
-    Stat statTag(Connection dbConnection, FsInode dir, String name) throws ChimeraFsException, SQLException {
-
-
-        Stat ret = new Stat();
-        PreparedStatement stStatTag = null; // get tag attributes
         try {
-
-            String tagId = getTagId(dbConnection, dir, name);
-
-            if (tagId == null) {
-                throw new FileNotFoundHimeraFsException("tag do not exist");
-            }
-
-            stStatTag = dbConnection.prepareStatement(sqlStatTag);
-            stStatTag.setString(1, tagId);
-            ResultSet statResult = stStatTag.executeQuery();
-
-            if (statResult.next()) {
-
-                ret.setSize(statResult.getLong("isize"));
-                ret.setATime(statResult.getTimestamp("iatime").getTime());
-                ret.setCTime(statResult.getTimestamp("ictime").getTime());
-                ret.setMTime(statResult.getTimestamp("imtime").getTime());
-                ret.setUid(statResult.getInt("iuid"));
-                ret.setGid(statResult.getInt("igid"));
-                ret.setMode(statResult.getInt("imode"));
-                ret.setNlink(statResult.getInt("inlink"));
-                ret.setIno((int) dir.id());
-                ret.setGeneration(statResult.getTimestamp("imtime").getTime());
-                ret.setDev(17);
-                ret.setRdev(13);
-
-            } else {
-                // file not found
-                throw new FileNotFoundHimeraFsException(name);
-            }
-
-        } finally {
-            SqlHelper.tryToClose(stStatTag);
+            return _jdbc.queryForObject("SELECT isize,inlink,imode,iuid,igid,iatime,ictime,imtime " +
+                                        "FROM t_tags_inodes WHERE itagid=?",
+                                        (rs, rowNum) -> {
+                                            Stat ret = new Stat();
+                                            ret.setSize(rs.getLong("isize"));
+                                            ret.setATime(rs.getTimestamp("iatime").getTime());
+                                            ret.setCTime(rs.getTimestamp("ictime").getTime());
+                                            ret.setMTime(rs.getTimestamp("imtime").getTime());
+                                            ret.setUid(rs.getInt("iuid"));
+                                            ret.setGid(rs.getInt("igid"));
+                                            ret.setMode(rs.getInt("imode"));
+                                            ret.setNlink(rs.getInt("inlink"));
+                                            ret.setIno(dir.ino());
+                                            ret.setGeneration(rs.getTimestamp("imtime").getTime());
+                                            ret.setDev(17);
+                                            ret.setRdev(13);
+                                            return ret;
+                                        },
+                                        tagId);
+        } catch (IncorrectResultSizeDataAccessException e) {
+            throw new FileNotFoundHimeraFsException(name);
         }
-
-        return ret;
     }
-    private static final String sqlIsTagOwner = "SELECT isorign FROM t_tags WHERE ipnfsid=? AND itagname=?";
 
     /**
      * checks for tag ownership
      *
-     * @param dbConnection
      * @param dir
      * @param tagName
-     * @throws SQLException
      * @return true, if inode is the origin of the tag
      */
-    boolean isTagOwner(Connection dbConnection, FsInode dir, String tagName) throws SQLException {
-
-        boolean isOwner = false;
-        PreparedStatement stTagOwner = null;
-        ResultSet rs = null;
-
-        try {
-
-            stTagOwner = dbConnection.prepareStatement(sqlIsTagOwner);
-            stTagOwner.setString(1, dir.toString());
-            stTagOwner.setString(2, tagName);
-
-            rs = stTagOwner.executeQuery();
-            if (rs.next()) {
-                int rc = rs.getInt("isorign");
-                if (rc == 1) {
-                    isOwner = true;
-                }
-            }
-
-        } finally {
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stTagOwner);
-        }
-
-        return isOwner;
+    boolean isTagOwner(FsInode dir, String tagName) {
+        return _jdbc.query("SELECT isorign FROM t_tags WHERE inumber=? AND itagname=?",
+                           ps -> {
+                               ps.setLong(1, dir.ino());
+                               ps.setString(2, tagName);
+                           },
+                           rs -> rs.next() && rs.getInt("isorign") == 1);
     }
-    private final static String sqlCopyTag = "INSERT INTO t_tags ( SELECT ?, itagname, itagid, 0 from t_tags WHERE ipnfsid=?)";
+
+    void createTags(FsInode inode, int uid, int gid, int mode, Map<String, byte[]> tags) {
+        if (!tags.isEmpty()) {
+            Map<String, Long> ids = new HashMap<>();
+            tags.forEach((key, value) -> ids.put(key, createTagInode(uid, gid, mode, value)));
+            _jdbc.batchUpdate("INSERT INTO t_tags (inumber,itagid,isorign,itagname) VALUES(?,?,1,?)",
+                              ids.entrySet(),
+                              ids.size(),
+                              (ps, tag) -> {
+                                  ps.setLong(1, inode.ino());
+                                  ps.setLong(2, tag.getValue());
+                                  ps.setString(3, tag.getKey());
+                              });
+        }
+    }
 
     /**
-     *
      * copy all directory tags from origin directory to destination. New copy marked as inherited.
      *
-     * @param dbConnection
      * @param orign
      * @param destination
-     * @throws SQLException
      */
-    void copyTags(Connection dbConnection, FsInode orign, FsInode destination) throws SQLException {
-
-        PreparedStatement stCopyTags = null;
-        try {
-
-            stCopyTags = dbConnection.prepareStatement(sqlCopyTag);
-            stCopyTags.setString(1, destination.toString());
-            stCopyTags.setString(2, orign.toString());
-            stCopyTags.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stCopyTags);
-        }
+    void copyTags(FsInode orign, FsInode destination) {
+        _jdbc.update("INSERT INTO t_tags (inumber,itagid,isorign,itagname) (SELECT ?,itagid,0,itagname from t_tags WHERE inumber=?)",
+                     destination.ino(), orign.ino());
     }
 
-    private static final String sqlSetTagOwner = "UPDATE t_tags_inodes SET iuid=?, ictime=? WHERE itagid=?";
-
-    void setTagOwner(Connection dbConnection, FsInode_TAG tagInode, int newOwner) throws SQLException {
-
-        PreparedStatement ps = null;
-        String tagId = getTagId(dbConnection, tagInode, tagInode.tagName());
-
-        try {
-
-            ps = dbConnection.prepareStatement(sqlSetTagOwner);
-
-            ps.setInt(1, newOwner);
-            ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
-            ps.setString(3, tagId);
-            ps.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(ps);
+    void setTagOwner(FsInode_TAG tagInode, int newOwner) throws FileNotFoundHimeraFsException {
+        Long tagId = getTagId(tagInode, tagInode.tagName());
+        if (tagId == null) {
+            throw new FileNotFoundHimeraFsException("tag does not exist");
         }
+        _jdbc.update("UPDATE t_tags_inodes SET iuid=?, ictime=? WHERE itagid=?",
+                     ps -> {
+                         ps.setInt(1, newOwner);
+                         ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
+                         ps.setLong(3, tagId);
+                     });
     }
 
-    private static final String sqlSetTagOwnerGroup = "UPDATE t_tags_inodes SET igid=?, ictime=? WHERE itagid=?";
-
-    void setTagOwnerGroup(Connection dbConnection, FsInode_TAG tagInode, int newOwner) throws SQLException {
-
-        PreparedStatement ps = null;
-        String tagId = getTagId(dbConnection, tagInode, tagInode.tagName());
-
-        try {
-
-            ps = dbConnection.prepareStatement(sqlSetTagOwnerGroup);
-
-            ps.setInt(1, newOwner);
-            ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
-            ps.setString(3, tagId);
-            ps.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(ps);
+    void setTagOwnerGroup(FsInode_TAG tagInode, int newOwner) throws FileNotFoundHimeraFsException {
+        Long tagId = getTagId(tagInode, tagInode.tagName());
+        if (tagId == null) {
+            throw new FileNotFoundHimeraFsException("tag does not exist");
         }
+        _jdbc.update("UPDATE t_tags_inodes SET igid=?, ictime=? WHERE itagid=?",
+                     ps -> {
+                         ps.setInt(1, newOwner);
+                         ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
+                         ps.setLong(3, tagId);
+                     });
     }
 
-    private static final String sqlSetTagMode = "UPDATE t_tags_inodes SET imode=?, ictime=? WHERE itagid=?";
-
-    void setTagMode(Connection dbConnection, FsInode_TAG tagInode, int mode) throws SQLException {
-
-        PreparedStatement ps = null;
-        String tagId = getTagId(dbConnection, tagInode, tagInode.tagName());
-
-        try {
-
-            ps = dbConnection.prepareStatement(sqlSetTagMode);
-
-            ps.setInt(1, mode & UnixPermission.S_PERMS);
-            ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
-            ps.setString(3, tagId);
-            ps.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(ps);
+    void setTagMode(FsInode_TAG tagInode, int mode) throws FileNotFoundHimeraFsException {
+        Long tagId = getTagId(tagInode, tagInode.tagName());
+        if (tagId == null) {
+            throw new FileNotFoundHimeraFsException("tag does not exist");
         }
+        _jdbc.update("UPDATE t_tags_inodes SET imode=?, ictime=? WHERE itagid=?",
+                     ps -> {
+                         ps.setInt(1, mode & UnixPermission.S_PERMS);
+                         ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
+                         ps.setLong(3, tagId);
+                     });
     }
-
-    /*
-     * Storage Information
-     *
-     * Currently it's not allowed to modify it
-     */
-    private static final String sqlSetStorageInfo = "INSERT INTO t_storageinfo VALUES(?,?,?,?)";
 
     /**
      * set storage info of inode in t_storageinfo table.
      * once storage info is stores, it's not allowed to modify it
      *
-     * @param dbConnection
      * @param inode
      * @param storageInfo
-     * @throws SQLException
      */
-    void setStorageInfo(Connection dbConnection, FsInode inode, InodeStorageInformation storageInfo) throws
-                                                                                                     SQLException {
-
-        PreparedStatement stSetStorageInfo = null; // clear locations in the storage system for the inode
-
-        try {
-
-            // no records updated - insert a new one
-            stSetStorageInfo = dbConnection.prepareStatement(sqlSetStorageInfo);
-            stSetStorageInfo.setString(1, inode.toString());
-            stSetStorageInfo.setString(2, storageInfo.hsmName());
-            stSetStorageInfo.setString(3, storageInfo.storageGroup());
-            stSetStorageInfo.setString(4, storageInfo.storageSubGroup());
-
-            stSetStorageInfo.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stSetStorageInfo);
-        }
+    void setStorageInfo(FsInode inode, InodeStorageInformation storageInfo) {
+        _jdbc.update("INSERT INTO t_storageinfo (SELECT * FROM (VALUES (?,?,?,?)) v WHERE NOT EXISTS " +
+                     "(SELECT 1 FROM t_storageinfo WHERE inumber=?))",
+                     ps -> {
+                         ps.setLong(1, inode.ino());
+                         ps.setString(2, storageInfo.hsmName());
+                         ps.setString(3, storageInfo.storageGroup());
+                         ps.setString(4, storageInfo.storageSubGroup());
+                         ps.setLong(5, inode.ino());
+                     });
     }
-    private static final String sqlGetAccessLatency = "SELECT iaccessLatency FROM t_access_latency WHERE ipnfsid=?";
-
-    /**
-     *
-     * @param dbConnection
-     * @param inode
-     * @return Access Latency or null if not defined
-     * @throws SQLException
-     */
-    AccessLatency getAccessLatency(Connection dbConnection, FsInode inode) throws
-                                                                           SQLException {
-        AccessLatency accessLatency = null;
-        PreparedStatement stGetAccessLatency = null;
-        ResultSet alResultSet = null;
-
-        try {
-
-            stGetAccessLatency = dbConnection.prepareStatement(sqlGetAccessLatency);
-            stGetAccessLatency.setString(1, inode.toString());
-
-            alResultSet = stGetAccessLatency.executeQuery();
-            if (alResultSet.next()) {
-                accessLatency = AccessLatency.valueOf(alResultSet.getInt("iaccessLatency"));
-            }
-
-        } finally {
-            SqlHelper.tryToClose(alResultSet);
-            SqlHelper.tryToClose(stGetAccessLatency);
-        }
-
-        return accessLatency;
-    }
-    private static final String sqlGetRetentionPolicy = "SELECT iretentionPolicy FROM t_retention_policy WHERE ipnfsid=?";
-
-    /**
-     *
-     * @param dbConnection
-     * @param inode
-     * @return Retention Policy or null if not defined
-     * @throws SQLException
-     */
-    RetentionPolicy getRetentionPolicy(Connection dbConnection, FsInode inode) throws
-                                                                               SQLException {
-        RetentionPolicy retentionPolicy = null;
-        PreparedStatement stRetentionPolicy = null;
-        ResultSet rpResultSet = null;
-
-        try {
-
-            stRetentionPolicy = dbConnection.prepareStatement(sqlGetRetentionPolicy);
-            stRetentionPolicy.setString(1, inode.toString());
-
-            rpResultSet = stRetentionPolicy.executeQuery();
-            if (rpResultSet.next()) {
-                retentionPolicy = RetentionPolicy.valueOf(rpResultSet.getInt("iretentionPolicy"));
-            }
-
-        } finally {
-            SqlHelper.tryToClose(rpResultSet);
-            SqlHelper.tryToClose(stRetentionPolicy);
-        }
-
-        return retentionPolicy;
-    }
-    private static final String sqlSetAccessLatency = "INSERT INTO t_access_latency VALUES(?,?)";
-    private static final String sqlUpdateAccessLatency = "UPDATE t_access_latency SET iaccessLatency=? WHERE ipnfsid=?";
-
-    void setAccessLatency(Connection dbConnection, FsInode inode, AccessLatency accessLatency) throws
-                                                                                               SQLException {
-
-        PreparedStatement stSetAccessLatency = null; // clear locations in the storage system for the inode
-        PreparedStatement stUpdateAccessLatency = null;
-        try {
-
-            stUpdateAccessLatency = dbConnection.prepareStatement(sqlUpdateAccessLatency);
-            stUpdateAccessLatency.setInt(1, accessLatency.getId());
-            stUpdateAccessLatency.setString(2, inode.toString());
-
-            if (stUpdateAccessLatency.executeUpdate() == 0) {
-
-                // no records updated - insert a new one
-
-                stSetAccessLatency = dbConnection.prepareStatement(sqlSetAccessLatency);
-                stSetAccessLatency.setString(1, inode.toString());
-                stSetAccessLatency.setInt(2, accessLatency.getId());
-
-                stSetAccessLatency.executeUpdate();
-            }
-
-        } finally {
-            SqlHelper.tryToClose(stSetAccessLatency);
-            SqlHelper.tryToClose(stUpdateAccessLatency);
-        }
-    }
-    private static final String sqlSetRetentionPolicy = "INSERT INTO t_retention_policy VALUES(?,?)";
-    private static final String sqlUpdateRetentionPolicy = "UPDATE t_retention_policy SET iretentionPolicy=? WHERE ipnfsid=?";
-
-    void setRetentionPolicy(Connection dbConnection, FsInode inode, RetentionPolicy accessLatency) throws
-                                                                                                   SQLException {
-
-        PreparedStatement stSetRetentionPolicy = null; // clear locations in the storage system for the inode
-        PreparedStatement stUpdateRetentionPolicy = null;
-        try {
-
-            stUpdateRetentionPolicy = dbConnection.prepareStatement(sqlUpdateRetentionPolicy);
-            stUpdateRetentionPolicy.setInt(1, accessLatency.getId());
-            stUpdateRetentionPolicy.setString(2, inode.toString());
-
-            if (stUpdateRetentionPolicy.executeUpdate() == 0) {
-
-                // no records updated - insert a new one
-
-                stSetRetentionPolicy = dbConnection.prepareStatement(sqlSetRetentionPolicy);
-                stSetRetentionPolicy.setString(1, inode.toString());
-                stSetRetentionPolicy.setInt(2, accessLatency.getId());
-
-                stSetRetentionPolicy.executeUpdate();
-            }
-
-        } finally {
-            SqlHelper.tryToClose(stSetRetentionPolicy);
-            SqlHelper.tryToClose(stUpdateRetentionPolicy);
-        }
-    }
-    private static final String sqlRemoveStorageInfo = "DELETE FROM t_storageinfo WHERE ipnfsid=?";
-
-    void removeStorageInfo(Connection dbConnection, FsInode inode) throws
-                                                                   SQLException {
-
-        PreparedStatement stRemoveStorageInfo = null; // clear locations in the storage system for the inode
-        try {
-            stRemoveStorageInfo = dbConnection.prepareStatement(sqlRemoveStorageInfo);
-            stRemoveStorageInfo.setString(1, inode.toString());
-            stRemoveStorageInfo.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stRemoveStorageInfo);
-        }
-    }
-    private static final String sqlGetStorageInfo = "SELECT ihsmName, istorageGroup, istorageSubGroup " +
-            "FROM t_storageinfo WHERE t_storageinfo.ipnfsid=?";
 
     /**
      *
      * returns storage information like storage group, storage sub group, hsm,
      * retention policy and access latency associated with the inode.
      *
-     * @param dbConnection
      * @param inode
      * @throws ChimeraFsException
-     * @throws SQLException
      * @return
      */
-    InodeStorageInformation getStorageInfo(Connection dbConnection, FsInode inode) throws ChimeraFsException, SQLException {
-
-        InodeStorageInformation storageInfo = null;
-
-        ResultSet storageInfoResult = null;
-        PreparedStatement stGetStorageInfo = null; // clear locations in the storage system for the inode
+    InodeStorageInformation getStorageInfo(FsInode inode) throws ChimeraFsException {
         try {
-
-            stGetStorageInfo = dbConnection.prepareStatement(sqlGetStorageInfo);
-            stGetStorageInfo.setString(1, inode.toString());
-            storageInfoResult = stGetStorageInfo.executeQuery();
-
-            if (storageInfoResult.next()) {
-
-                String hsmName = storageInfoResult.getString("ihsmName");
-                String storageGroup = storageInfoResult.getString("istoragegroup");
-                String storageSubGroup = storageInfoResult.getString("istoragesubgroup");
-
-                storageInfo = new InodeStorageInformation(inode, hsmName, storageGroup, storageSubGroup);
-            } else {
-                // file not found
-                throw new FileNotFoundHimeraFsException(inode.toString());
-            }
-
-        } finally {
-            SqlHelper.tryToClose(storageInfoResult);
-            SqlHelper.tryToClose(stGetStorageInfo);
+            return _jdbc.queryForObject(
+                    "SELECT ihsmName, istorageGroup, istorageSubGroup FROM t_storageinfo WHERE inumber=?",
+                    (rs, rowNum) -> {
+                        String hsmName = rs.getString("ihsmName");
+                        String storageGroup = rs.getString("istoragegroup");
+                        String storageSubGroup = rs.getString("istoragesubgroup");
+                        return new InodeStorageInformation(inode, hsmName, storageGroup, storageSubGroup);
+                    },
+                    inode.ino());
+        } catch (IncorrectResultSizeDataAccessException e) {
+            throw new FileNotFoundHimeraFsException(inode.toString());
         }
-
-        return storageInfo;
     }
-    /*
-     * directory caching
-     * the following set of methods should help to path2inode and inode2path operations
-     */
-    private static final String sqlGetInodeFromCache = "SELECT ipnfsid FROM t_dir_cache WHERE ipath=?";
-
-    String getInodeFromCache(Connection dbConnection, String path) throws SQLException {
-
-        String inodeString = null;
-        PreparedStatement stGetInodeFromCache = null;
-        ResultSet getInodeFromCacheResultSet = null;
-
-        try {
-            stGetInodeFromCache = dbConnection.prepareStatement(sqlGetInodeFromCache);
-
-            stGetInodeFromCache.setString(1, path);
-
-            getInodeFromCacheResultSet = stGetInodeFromCache.executeQuery();
-            if (getInodeFromCacheResultSet.next()) {
-                inodeString = getInodeFromCacheResultSet.getString("ipnfsid");
-            }
-
-        } finally {
-            SqlHelper.tryToClose(getInodeFromCacheResultSet);
-            SqlHelper.tryToClose(stGetInodeFromCache);
-        }
-
-        return inodeString;
-
-    }
-    private static final String sqlGetPathFromCache = "SELECT ipath FROM t_dir_cache WHERE ipnfsid=?";
-
-    String getPathFromCache(Connection dbConnection, FsInode inode) throws SQLException {
-
-        String path = null;
-        PreparedStatement stGetPathFromCache = null;
-        ResultSet getPathFromCacheResultSet = null;
-
-        try {
-            stGetPathFromCache = dbConnection.prepareStatement(sqlGetPathFromCache);
-
-            stGetPathFromCache.setString(1, inode.toString());
-
-            getPathFromCacheResultSet = stGetPathFromCache.executeQuery();
-            if (getPathFromCacheResultSet.next()) {
-                path = getPathFromCacheResultSet.getString("ipath");
-            }
-
-        } finally {
-            SqlHelper.tryToClose(getPathFromCacheResultSet);
-            SqlHelper.tryToClose(stGetPathFromCache);
-        }
-
-        return path;
-    }
-    private static final String sqlSetInodeChecksum = "INSERT INTO t_inodes_checksum VALUES(?,?,?)";
 
     /**
      * add a checksum value of <i>type</i> to an inode
      *
-     * @param dbConnection
      * @param inode
      * @param type
      * @param value
-     * @throws SQLException
      */
-    void setInodeChecksum(Connection dbConnection, FsInode inode, int type, String value) throws SQLException {
-
-        PreparedStatement stSetInodeChecksum = null;
-
-        try {
-
-            stSetInodeChecksum = dbConnection.prepareStatement(sqlSetInodeChecksum);
-            stSetInodeChecksum.setString(1, inode.toString());
-            stSetInodeChecksum.setInt(2, type);
-            stSetInodeChecksum.setString(3, value);
-
-            stSetInodeChecksum.executeUpdate();
-
-        } finally {
-            SqlHelper.tryToClose(stSetInodeChecksum);
-        }
-
+    void setInodeChecksum(FsInode inode, int type, String value) {
+        _jdbc.update("INSERT INTO t_inodes_checksum (inumber,itype,isum) (SELECT * FROM (VALUES (?,?,?)) v WHERE NOT EXISTS " +
+                     "(SELECT 1 FROM t_inodes_checksum WHERE inumber=?))",
+                     ps -> {
+                         ps.setLong(1, inode.ino());
+                         ps.setInt(2, type);
+                         ps.setString(3, value);
+                         ps.setLong(4, inode.ino());
+                     });
     }
-    private static final String sqlGetInodeChecksum = "SELECT isum FROM t_inodes_checksum WHERE ipnfsid=? AND itype=?";
 
     /**
      *
-     * @param dbConnection
      * @param inode
-     * @param type
-     * @return HEX presentation of the checksum value for the specific file and checksum type or null
-     * @throws SQLException
      */
-    String getInodeChecksum(Connection dbConnection, FsInode inode, int type) throws SQLException {
-
-
-        String checksum = null;
-
-        PreparedStatement stGetInodeChecksum = null;
-        ResultSet getGetInodeChecksumResultSet = null;
-
-        try {
-
-            stGetInodeChecksum = dbConnection.prepareStatement(sqlGetInodeChecksum);
-            stGetInodeChecksum.setString(1, inode.toString());
-            stGetInodeChecksum.setInt(2, type);
-
-            getGetInodeChecksumResultSet = stGetInodeChecksum.executeQuery();
-
-            if (getGetInodeChecksumResultSet.next()) {
-                checksum = getGetInodeChecksumResultSet.getString("isum");
-            }
-
-        } finally {
-            SqlHelper.tryToClose(getGetInodeChecksumResultSet);
-            SqlHelper.tryToClose(stGetInodeChecksum);
-        }
-
-        return checksum;
-
+    List<Checksum> getInodeChecksums(FsInode inode) {
+        return _jdbc.query("SELECT isum, itype FROM t_inodes_checksum WHERE inumber=?",
+                           ps -> ps.setLong(1, inode.ino()),
+                           (rs, rowNum) -> {
+                               String checksum = rs.getString("isum");
+                               int type = rs.getInt("itype");
+                               return new Checksum(ChecksumType.getChecksumType(type), checksum);
+                           });
     }
-    private static final String sqlRemoveInodeChecksum = "DELETE FROM t_inodes_checksum WHERE ipnfsid=? AND itype=?";
-    private static final String sqlRemoveInodeAllChecksum = "DELETE FROM t_inodes_checksum WHERE ipnfsid=?";
 
     /**
      *
-     * @param dbConnection
      * @param inode
      * @param type
-     * @throws SQLException
      */
-    void removeInodeChecksum(Connection dbConnection, FsInode inode, int type) throws SQLException {
-
-        PreparedStatement stRemoveInodeChecksum = null;
-
-        try {
-
-            if (type >= 0) {
-                stRemoveInodeChecksum = dbConnection.prepareStatement(sqlRemoveInodeChecksum);
-                stRemoveInodeChecksum.setInt(2, type);
-            } else {
-                stRemoveInodeChecksum = dbConnection.prepareStatement(sqlRemoveInodeAllChecksum);
-            }
-
-            stRemoveInodeChecksum.setString(1, inode.toString());
-
-            stRemoveInodeChecksum.executeUpdate();
-
-
-        } finally {
-            SqlHelper.tryToClose(stRemoveInodeChecksum);
+    void removeInodeChecksum(FsInode inode, int type) {
+        if (type >= 0) {
+            _jdbc.update("DELETE FROM t_inodes_checksum WHERE inumber=? AND itype=?",
+                         ps -> {
+                             ps.setLong(1, inode.ino());
+                             ps.setInt(2, type);
+                         });
+        } else {
+            _jdbc.update("DELETE FROM t_inodes_checksum WHERE inumber=?", inode);
         }
-
     }
 
     /**
      * get inode of given path starting <i>root</i> inode.
-     * @param dbConnection
      * @param root staring point
      * @param path
      * @return inode or null if path does not exist.
-     * @throws SQLException
      */
-    FsInode path2inode(Connection dbConnection, FsInode root, String path)
-            throws SQLException, IOHimeraFsException {
-
-
+    FsInode path2inode(FsInode root, String path) throws ChimeraFsException
+    {
         File pathFile = new File(path);
         List<String> pathElemts = new ArrayList<>();
-
 
         do {
             String fileName = pathFile.getName();
@@ -2175,7 +1491,7 @@ class FsSqlDriver {
          */
         for (int i = pathElemts.size(); i > 0; i--) {
             String f = pathElemts.get(i - 1);
-            inode = inodeOf(dbConnection, parentInode, f);
+            inode = inodeOf(parentInode, f, STAT);
 
             if (inode == null) {
                 /*
@@ -2185,18 +1501,17 @@ class FsSqlDriver {
             }
 
             /*
-             * if is a link, then resove it
+             * if is a link, then resolve it
              */
-            Stat s = stat(dbConnection, inode);
+            Stat s = inode.statCache();
             if (UnixPermission.getType(s.getMode()) == UnixPermission.S_IFLNK) {
                 byte[] b = new byte[(int) s.getSize()];
-                int n = read(dbConnection, inode, 0, 0, b, 0, b.length);
+                int n = read(inode, 0, 0, b, 0, b.length);
                 String link = new String(b, 0, n);
                 if (link.charAt(0) == File.separatorChar) {
-                    // FIXME: have to be done more elegant
-                    parentInode = new FsInode(parentInode.getFs(), "000000000000000000000000000000000000");
+                    parentInode = new FsInode(parentInode.getFs(), _root);
                 }
-                inode = path2inode(dbConnection, parentInode, link);
+                inode = path2inode(parentInode, link);
             }
             parentInode = inode;
         }
@@ -2207,26 +1522,21 @@ class FsSqlDriver {
     /**
      * Get the inodes of given the path starting at <i>root</i>.
      *
-     * @param dbConnection
      * @param root staring point
      * @param path
      * @return inode or null if path does not exist.
-     * @throws SQLException
      */
-    List<FsInode>
-        path2inodes(Connection dbConnection, FsInode root, String path)
-        throws SQLException, IOHimeraFsException
+    List<FsInode> path2inodes(FsInode root, String path) throws ChimeraFsException
     {
         File pathFile = new File(path);
-        // Path elements in reverse order.
-        Deque<String> pathElements = new ArrayDeque<>();
+        List<String> pathElements = new ArrayList<>();
 
         do {
             String fileName = pathFile.getName();
             if (fileName.length() != 0) {
                 /* Skip multiple file separators.
                  */
-                pathElements.addFirst(pathFile.getName());
+                pathElements.add(pathFile.getName());
             }
             pathFile = pathFile.getParentFile();
         } while (pathFile != null);
@@ -2237,8 +1547,10 @@ class FsSqlDriver {
         List<FsInode> inodes = new ArrayList<>(pathElements.size() + 1);
         inodes.add(root);
 
-        for (String f: pathElements) {
-            inode = inodeOf(dbConnection, parentInode, f);
+        /* Path elements are in reverse order.
+         */
+        for (String f: Lists.reverse(pathElements)) {
+            inode = inodeOf(parentInode, f, STAT);
 
             if (inode == null) {
                 return Collections.emptyList();
@@ -2248,19 +1560,17 @@ class FsSqlDriver {
 
             /* If inode is a link then resolve it.
              */
-            Stat s = stat(dbConnection, inode);
-            inode.setStatCache(s);
+            Stat s = inode.statCache();
             if (UnixPermission.getType(s.getMode()) == UnixPermission.S_IFLNK) {
                 byte[] b = new byte[(int) s.getSize()];
-                int n = read(dbConnection, inode, 0, 0, b, 0, b.length);
+                int n = read(inode, 0, 0, b, 0, b.length);
                 String link = new String(b, 0, n);
                 if (link.charAt(0) == '/') {
-                    // FIXME: has to be done more elegantly
-                    parentInode = new FsInode(parentInode.getFs(), "000000000000000000000000000000000000");
+                    parentInode = new FsInode(parentInode.getFs(), _root);
                     inodes.add(parentInode);
                 }
                 List<FsInode> linkInodes =
-                    path2inodes(dbConnection, parentInode, link);
+                    path2inodes(parentInode, link);
                 if (linkInodes.isEmpty()) {
                     return Collections.emptyList();
                 }
@@ -2273,103 +1583,81 @@ class FsSqlDriver {
         return inodes;
     }
 
-    private final static String  sqlGetACL = "SELECT * FROM t_acl WHERE rs_id =  ? ORDER BY ace_order";
     /**
      * Get inode's Access Control List. An empty list is returned if there are no ACL assigned
      * to the <code>inode</code>.
-     * @param dbConnection
      * @param inode
      * @return
-     * @throws SQLException
      */
-    List<ACE> getACL(Connection dbConnection, FsInode inode) throws SQLException {
-        List<ACE> acl = new ArrayList<>();
-        PreparedStatement stGetAcl = null;
-        ResultSet rs = null;
-        try {
-            stGetAcl = dbConnection.prepareStatement(sqlGetACL);
-            stGetAcl.setString(1, inode.toString());
-
-            rs = stGetAcl.executeQuery();
-            while (rs.next()) {
-
-                int type = rs.getInt("type");
-                acl.add(new ACE(type == 0 ? AceType.ACCESS_ALLOWED_ACE_TYPE : AceType.ACCESS_DENIED_ACE_TYPE,
-                        rs.getInt("flags"),
-                        rs.getInt("access_msk"),
-                        Who.valueOf(rs.getInt("who")),
-                        rs.getInt("who_id"),
-                        rs.getString("address_msk")));
-            }
-
-        }finally{
-            SqlHelper.tryToClose(rs);
-            SqlHelper.tryToClose(stGetAcl);
-        }
-        return acl;
+    List<ACE> readAcl(FsInode inode) {
+        return _jdbc.query("SELECT * FROM t_acl WHERE inumber =  ? ORDER BY ace_order",
+                           ps -> ps.setLong(1, inode.ino()),
+                           (rs, rowNum) -> {
+                               AceType type =
+                                       (rs.getInt("type") == 0)
+                                       ? AceType.ACCESS_ALLOWED_ACE_TYPE
+                                       : AceType.ACCESS_DENIED_ACE_TYPE;
+                               return new ACE(type,
+                                              rs.getInt("flags"),
+                                              rs.getInt("access_msk"),
+                                              Who.valueOf(rs.getInt("who")),
+                                              rs.getInt("who_id"));
+                           });
     }
 
-    private static final String sqlDeleteACL = "DELETE FROM t_acl WHERE rs_id = ?";
-    private static final String sqlAddACL = "INSERT INTO t_acl VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
     /**
-     * Set inode's Access Control List. The existing ACL will be replaced.
-     * @param dbConnection
+     * Set inode's Access Control List. The inode must not have any ACLs prior to this call.
      * @param inode
      * @param acl
-     * @throws SQLException
      */
-    void setACL(Connection dbConnection, FsInode inode, List<ACE> acl) throws SQLException {
+    void writeAcl(FsInode inode, RsType rsType, List<ACE> acl) {
+        _jdbc.batchUpdate("INSERT INTO t_acl (inumber,rs_type,type,flags,access_msk,who,who_id,ace_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", acl, acl.size(),
+                          new ParameterizedPreparedStatementSetter<ACE>()
+                          {
+                              int order = 0;
 
-        PreparedStatement stDeleteACL = null;
-        PreparedStatement stAddACL = null;
-
-        try {
-            stDeleteACL = dbConnection.prepareStatement(sqlDeleteACL);
-            stDeleteACL.setString(1, inode.toString());
-            stDeleteACL.executeUpdate();
-
-            if(acl.isEmpty()) {
-                return;
-            }
-            stAddACL = dbConnection.prepareStatement(sqlAddACL);
-
-            int type = inode.isDirectory() ? 0 : 1;
-            int order = 0;
-            for (ACE ace : acl) {
-
-                stAddACL.setString(1, inode.toString());
-                stAddACL.setInt(2, type); // this is not needed, but we keep for backwar compatibility
-                stAddACL.setInt(3, ace.getType().getValue());
-                stAddACL.setInt(4, ace.getFlags());
-                stAddACL.setInt(5, ace.getAccessMsk());
-                stAddACL.setInt(6, ace.getWho().getValue());
-                stAddACL.setInt(7, ace.getWhoID());
-                stAddACL.setString(8, ace.getAddressMsk());
-                stAddACL.setInt(9, order);
-
-                stAddACL.addBatch();
-                order++;
-            }
-            stAddACL.executeBatch();
-            setInodeAttributes(dbConnection, inode, 0, new Stat());
-        }finally{
-            SqlHelper.tryToClose(stDeleteACL);
-            SqlHelper.tryToClose(stAddACL);
-        }
+                              @Override
+                              public void setValues(PreparedStatement ps, ACE ace) throws SQLException
+                              {
+                                  ps.setLong(1, inode.ino());
+                                  ps.setInt(2, rsType.getValue());
+                                  ps.setInt(3, ace.getType().getValue());
+                                  ps.setInt(4, ace.getFlags());
+                                  ps.setInt(5, ace.getAccessMsk());
+                                  ps.setInt(6, ace.getWho().getValue());
+                                  ps.setInt(7, ace.getWhoID());
+                                  ps.setInt(8, order);
+                                  order++;
+                              }
+                          });
     }
 
-     /**
-      * Check <i>sqlState</i> for unique key violation.
-      * @param e
-      * @return true is sqlState is a unique key violation and false other wise
-      */
-    public boolean isDuplicatedKeyError(SQLException e) {
-        return e.getSQLState().equals("23505");
+    boolean deleteAcl(FsInode inode) {
+        return _jdbc.update("DELETE FROM t_acl WHERE inumber = ?", inode.ino()) > 0;
     }
 
     /**
-     * Check <i>sqlState</i> for foreign key violation.
-     * @param e
+     * Copies ACL entries from source to inode. The inode must not have any ACLs prior to this call.
+     *
+     * @param source inode whose ACLs to copy
+     * @param inode inode to add the ACLs to
+     * @param type ACE object type
+     * @param mask Flags to remove from the copied ACEs
+     * @param flags Only copy ACEs that have one or more of these flags set
+     */
+    void copyAcl(FsInode source, FsInode inode, RsType type, EnumSet<AceFlags> mask, EnumSet<AceFlags> flags)
+    {
+        int msk = mask.stream().mapToInt(AceFlags::getValue).reduce(0, (a, b) -> a | b);
+        int flgs = flags.stream().mapToInt(AceFlags::getValue).reduce(0, (a, b) -> a | b);
+        List<ACE> acl = readAcl(source).stream()
+                .filter(ace -> (ace.getFlags() & flgs) > 0)
+                .map(ace -> new ACE(ace.getType(), (ace.getFlags() | msk) ^ msk, ace.getAccessMsk(), ace.getWho(), ace.getWhoID()))
+                .collect(toList());
+        writeAcl(inode, type, acl);
+    }
+
+    /**
+     * Check <i>SQLException</i> for foreign key violation.
      * @return true is sqlState is a foreign key violation and false other wise
      */
     public boolean isForeignKeyError(SQLException e) {
@@ -2383,40 +1671,42 @@ class FsSqlDriver {
      * @param dialect
      * @return FsSqlDriver
      */
-    static FsSqlDriver getDriverInstance(String dialect) {
-
-        FsSqlDriver driver = null;
-
+    static FsSqlDriver getDriverInstance(String dialect, DataSource dataSource) throws ChimeraFsException
+    {
         String dialectDriverClass = "org.dcache.chimera." + dialect + "FsSqlDriver";
 
         try {
-            driver = (FsSqlDriver) Class.forName(dialectDriverClass).newInstance();
-        } catch (InstantiationException | IllegalAccessException e) {
+            return (FsSqlDriver) Class.forName(dialectDriverClass).getDeclaredConstructor(DataSource.class).newInstance(dataSource);
+        } catch (InvocationTargetException e) {
+            Throwables.propagateIfInstanceOf(e.getCause(), ChimeraFsException.class);
+            throw new RuntimeException("Failed to instantiate Chimera driver: " + e.getMessage(), e);
+        } catch (NoSuchMethodException | InstantiationException | IllegalAccessException e) {
+            throw new RuntimeException("Failed to instantiate Chimera driver: " + e.getMessage(), e);
         } catch (ClassNotFoundException e) {
             _log.info(dialectDriverClass + " not found, using default FsSQLDriver.");
-            driver = new FsSqlDriver();
+            return new FsSqlDriver(dataSource);
         }
-
-        return driver;
     }
 
     private PreparedStatement generateAttributeUpdateStatement(Connection dbConnection, FsInode inode, Stat stat, int level)
-            throws SQLException {
-
-        final String attrUpdatePrefix = level == 0 ?
-		"UPDATE t_inodes SET ictime=?,igeneration=igeneration+1" :
-		"UPDATE t_level_" + level + " SET ictime=?";
-        final String attrUpdateSuffix = (level == 0 && stat.isDefined(Stat.StatAttributes.SIZE)) ?
-		" WHERE ipnfsid=? AND itype = " + UnixPermission.S_IFREG : " WHERE ipnfsid=?";
+	    throws SQLException {
+        final String attrUpdatePrefix =
+                (level == 0)
+                ? "UPDATE t_inodes SET ictime=?,igeneration=igeneration+1"
+                : ("UPDATE t_level_" + level + " SET ictime=?");
+        final String attrUpdateSuffix =
+                (level == 0 && stat.isDefined(Stat.StatAttributes.SIZE))
+                ? " WHERE inumber=? AND itype = " + UnixPermission.S_IFREG
+                : " WHERE inumber=?";
 
         StringBuilder sb = new StringBuilder(128);
-        long ctime = stat.isDefined(Stat.StatAttributes.CTIME) ? stat.getCTime()
-                : System.currentTimeMillis();
+        long ctime = stat.isDefined(Stat.StatAttributes.CTIME) ? stat.getCTime() :
+                System.currentTimeMillis();
 
-	// set size always must trigger mtime update
-	if (stat.isDefined(Stat.StatAttributes.SIZE) && !stat.isDefined(Stat.StatAttributes.MTIME)) {
-	    stat.setMTime(ctime);
-	}
+        // set size always must trigger mtime update
+        if (stat.isDefined(Stat.StatAttributes.SIZE) && !stat.isDefined(Stat.StatAttributes.MTIME)) {
+            stat.setMTime(ctime);
+        }
 
         sb.append(attrUpdatePrefix);
 
@@ -2441,7 +1731,12 @@ class FsSqlDriver {
         if (stat.isDefined(Stat.StatAttributes.CRTIME)) {
             sb.append(",icrtime=?");
         }
-
+        if (stat.isDefined(Stat.StatAttributes.ACCESS_LATENCY)) {
+            sb.append(",iaccess_latency=?");
+        }
+        if (stat.isDefined(Stat.StatAttributes.RETENTION_POLICY)) {
+            sb.append(",iretention_policy=?");
+        }
         sb.append(attrUpdateSuffix);
 
         String statement = sb.toString();
@@ -2471,7 +1766,13 @@ class FsSqlDriver {
         if (stat.isDefined(Stat.StatAttributes.CRTIME)) {
             preparedStatement.setTimestamp(idx++, new Timestamp(stat.getCrTime()));
         }
-        preparedStatement.setString(idx++, inode.toString());
+        if (stat.isDefined(Stat.StatAttributes.ACCESS_LATENCY)) {
+            preparedStatement.setInt(idx++, stat.getAccessLatency().getId());
+        }
+        if (stat.isDefined(Stat.StatAttributes.RETENTION_POLICY)) {
+            preparedStatement.setInt(idx++, stat.getRetentionPolicy().getId());
+        }
+        preparedStatement.setLong(idx++, inode.ino());
         return preparedStatement;
     }
 }

@@ -16,13 +16,14 @@
  */
 package org.dcache.chimera;
 
-import java.nio.charset.StandardCharsets;
+import com.google.common.base.Charsets;
+
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 import org.dcache.chimera.posix.Stat;
 
 public class FsInode_PSET extends FsInode {
-
     private static final String SIZE = "size";
     private static final String IO = "io";
     private static final String ONLN = "bringonline";
@@ -31,8 +32,8 @@ public class FsInode_PSET extends FsInode {
 
     private final String[] _args;
 
-    public FsInode_PSET(FileSystemProvider fs, String id, String[] args) {
-        super(fs, id, FsInodeType.PSET);
+    public FsInode_PSET(FileSystemProvider fs, long ino, String[] args) {
+        super(fs, ino, FsInodeType.PSET);
         _args = args.clone();
     }
 
@@ -100,7 +101,7 @@ public class FsInode_PSET extends FsInode {
             sb.append(arg).append(':');
         }
 
-        return byteBase(sb.toString().getBytes(StandardCharsets.UTF_8));
+        return byteBase(sb.toString().getBytes(Charsets.UTF_8));
     }
 
     @Override
@@ -108,9 +109,6 @@ public class FsInode_PSET extends FsInode {
         return -1;
     }
 
-    /* (non-Javadoc)
-     * @see org.dcache.chimera.FsInode#equals(java.lang.Object)
-     */
     @Override
     public boolean equals(Object o) {
 
@@ -125,16 +123,29 @@ public class FsInode_PSET extends FsInode {
         return super.equals(o) && Arrays.equals(_args, ((FsInode_PSET) o)._args);
     }
 
-
-    /* (non-Javadoc)
-     * @see org.dcache.chimera.FsInode#hashCode()
-     */
-    @Override
-    public int hashCode() {
-        return 17;
-    }
-
     private void handlePinRequest() throws ChimeraFsException {
-	// nop
+        long lifetime;
+        TimeUnit unit = TimeUnit.SECONDS;
+        if (_args.length > 1) {
+            lifetime = Long.parseLong(_args[1]);
+            if (lifetime < 0) {
+                throw new ChimeraFsException("Negative values are not allowed;"
+                                + " please use a positive value for pin lifetime,"
+                                + " or 0 to unpin the file");
+            }
+        } else {
+            lifetime = 0;
+        }
+
+        if (_args.length > 2) {
+            unit = TimeUnit.valueOf(_args[2]);
+        }
+        lifetime = unit.toMillis(lifetime);
+
+        if (lifetime == 0) {
+            _fs.unpin(new FsInode(_fs, ino()));
+        } else {
+            _fs.pin(new FsInode(_fs, ino()), lifetime);
+        }
     }
 }

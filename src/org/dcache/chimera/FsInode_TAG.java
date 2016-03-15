@@ -16,7 +16,7 @@
  */
 package org.dcache.chimera;
 
-import java.nio.charset.StandardCharsets;
+import com.google.common.base.Charsets;
 import org.dcache.chimera.posix.Stat;
 
 public class FsInode_TAG extends FsInode {
@@ -26,11 +26,11 @@ public class FsInode_TAG extends FsInode {
     /**
      *
      * @param fs pointer to 'File System'
-     * @param id inode id of the
+     * @param ino inode number of the
      * @param tag
      */
-    public FsInode_TAG(FileSystemProvider fs, String id, String tag) {
-        super(fs, id, FsInodeType.TAG);
+    public FsInode_TAG(FileSystemProvider fs, long ino, String tag) {
+        super(fs, ino, FsInodeType.TAG);
         _tag = tag;
     }
 
@@ -92,7 +92,7 @@ public class FsInode_TAG extends FsInode {
 
     @Override
     public byte[] getIdentifier() {
-        return byteBase(_tag.getBytes(StandardCharsets.UTF_8));
+        return byteBase(_tag.getBytes(Charsets.UTF_8));
     }
 
 

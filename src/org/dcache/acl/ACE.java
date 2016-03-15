@@ -14,7 +14,6 @@ import org.dcache.acl.enums.Who;
 public class ACE implements Serializable {
 
     static final long serialVersionUID = -7088617639500399472L;
-    public static final String DEFAULT_ADDRESS_MSK = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF";
     /**
      * Type of ACE (ALLOW / DENY)
      */
@@ -35,10 +34,6 @@ public class ACE implements Serializable {
      * Virtual user or group ID (equals to -1 if who is special subject)
      */
     private final int _whoID;
-    /**
-     * The request origin address mask
-     */
-    private final String _addressMsk;
 
     /**
      * @param type
@@ -56,29 +51,16 @@ public class ACE implements Serializable {
      * @param order
      *            Defines position of ACE within ACL
      */
-    public ACE(AceType type, int flags, int accessMsk, Who who, int whoID, String addressMsk) {
+    public ACE(AceType type, int flags, int accessMsk, Who who, int whoID) {
         _type = type;
         _flags = flags;
         _accessMsk = accessMsk;
         _who = who;
         _whoID = whoID;
-        _addressMsk = addressMsk;
     }
 
     public int getAccessMsk() {
         return _accessMsk;
-    }
-
-    public String getAddressMsk() {
-        return _addressMsk;
-    }
-
-    public boolean isDefaultAddressMsk(String addressMsk) {
-        return DEFAULT_ADDRESS_MSK.equalsIgnoreCase(addressMsk);
-    }
-
-    public boolean isDefaultAddressMsk() {
-        return isDefaultAddressMsk(_addressMsk);
     }
 
     public int getFlags() {
@@ -121,16 +103,13 @@ public class ACE implements Serializable {
         if (_whoID != other._whoID) {
             return false;
         }
-        if (!_addressMsk.equals(other._addressMsk)) {
-            return false;
-        }
         return true;
     }
 
     @Override
     public int hashCode() {
         return _type.hashCode() ^ _flags ^ _accessMsk ^ _who.hashCode()
-                ^ _whoID ^ _addressMsk.hashCode();
+                ^ _whoID;
     }
 
     @Override

@@ -18,23 +18,24 @@ package org.dcache.chimera;
 
 import java.io.Closeable;
 import java.util.List;
-import org.dcache.acl.ACE;
+import java.util.Map;
+import java.util.Set;
 
+import org.dcache.acl.ACE;
 import org.dcache.chimera.posix.Stat;
-import org.dcache.chimera.store.AccessLatency;
 import org.dcache.chimera.store.InodeStorageInformation;
-import org.dcache.chimera.store.RetentionPolicy;
+import org.dcache.chimera.store.Checksum;
 
 public interface FileSystemProvider extends Closeable {
 
-    public abstract FsInode createLink(String src, String dest)
+    FsInode createLink(String src, String dest)
             throws ChimeraFsException;
 
-    public abstract FsInode createLink(FsInode parent, String name, String dest)
+    FsInode createLink(FsInode parent, String name, String dest)
             throws ChimeraFsException;
 
-    public abstract FsInode createLink(FsInode parent, String name, int uid,
-            int gid, int mode, byte[] dest) throws ChimeraFsException;
+    FsInode createLink(FsInode parent, String name, int uid,
+                       int gid, int mode, byte[] dest) throws ChimeraFsException;
 
     /**
      *
@@ -46,28 +47,28 @@ public interface FileSystemProvider extends Closeable {
      * @return
      * @throws ChimeraFsException
      */
-    public abstract FsInode createHLink(FsInode parent, FsInode inode,
-            String name) throws ChimeraFsException;
+    FsInode createHLink(FsInode parent, FsInode inode,
+                        String name) throws ChimeraFsException;
 
-    public abstract FsInode createFile(String path) throws ChimeraFsException;
+    FsInode createFile(String path) throws ChimeraFsException;
 
-    public abstract FsInode createFile(FsInode parent, String name)
+    FsInode createFile(FsInode parent, String name)
             throws ChimeraFsException;
 
-    public abstract FsInode createFileLevel(FsInode inode, int level)
+    FsInode createFileLevel(FsInode inode, int level)
             throws ChimeraFsException;
 
-    public abstract FsInode createFile(FsInode parent, String name, int owner,
-            int group, int mode) throws ChimeraFsException;
+    FsInode createFile(FsInode parent, String name, int owner,
+                       int group, int mode) throws ChimeraFsException;
 
-    public abstract FsInode createFile(FsInode parent, String name, int owner,
-            int group, int mode, int type) throws ChimeraFsException;
+    FsInode createFile(FsInode parent, String name, int owner,
+                       int group, int mode, int type) throws ChimeraFsException;
 
     /**
      * Create a new entry with given inode id.
      *
      * @param parent
-     * @param inode
+     * @param id
      * @param name
      * @param owner
      * @param group
@@ -75,51 +76,111 @@ public interface FileSystemProvider extends Closeable {
      * @param type
      * @throws ChimeraFsException
      */
-    public abstract void createFileWithId(FsInode parent, FsInode inode,
-            String name, int owner, int group, int mode, int type)
+    void createFileWithId(FsInode parent, String id, String name, int owner, int group, int mode, int type)
             throws ChimeraFsException;
 
-    public abstract DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir)
+    String[] listDir(String dir);
+
+    String[] listDir(FsInode dir) throws ChimeraFsException;
+
+    DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir)
             throws ChimeraFsException;
 
-    public abstract void remove(String path) throws ChimeraFsException;
+    void remove(String path) throws ChimeraFsException;
 
-    public abstract void remove(FsInode parent, String name)
+    /**
+     * Removes a directory entry.
+     *
+     * @param directory Inode of the directory.
+     * @param name Name of the entry to remove.
+     * @param inode Inode of the entry to remove.
+     *
+     * @throws ChimeraFsException
+     */
+    void remove(FsInode directory, String name, FsInode inode)
             throws ChimeraFsException;
 
-    public abstract void remove(FsInode inode) throws ChimeraFsException;
+    void remove(FsInode inode) throws ChimeraFsException;
 
-    public abstract Stat stat(String path)
+    Stat stat(String path)
             throws ChimeraFsException;
 
-    public abstract Stat stat(FsInode inode) throws ChimeraFsException;
+    Stat stat(FsInode inode) throws ChimeraFsException;
 
-    public abstract Stat stat(FsInode inode, int level)
+    Stat stat(FsInode inode, int level)
             throws ChimeraFsException;
 
-    public abstract FsInode mkdir(String path) throws ChimeraFsException;
+    FsInode mkdir(String path) throws ChimeraFsException;
 
-    public abstract FsInode mkdir(FsInode parent, String name)
+    FsInode mkdir(FsInode parent, String name)
             throws ChimeraFsException;
 
-    public abstract FsInode mkdir(FsInode parent, String name, int owner,
-            int group, int mode) throws ChimeraFsException;
+    FsInode mkdir(FsInode parent, String name, int owner,
+                  int group, int mode) throws ChimeraFsException;
 
-    public abstract FsInode path2inode(String path) throws ChimeraFsException;
-
-    public abstract FsInode path2inode(String path, FsInode startFrom)
+    /**
+     * Create a new directory.
+     *
+     * In contrast to the other mkdir calls, the new directory does not inherit
+     * the parent tags. Instead the new directory is initialized with {@code tags}.
+     *
+     * @param parent Inode of parent directory
+     * @param name Name of new directory
+     * @param owner UID of owner
+     * @param group GID of group
+     * @param mode Permissions
+     * @param acl ACL to set on new directory
+     * @param tags Tags to set on new directory
+     * @return Inode of newly created directory
+     * @throws ChimeraFsException
+     */
+    FsInode mkdir(FsInode parent, String name, int owner, int group, int mode, List<ACE> acl, Map<String, byte[]> tags)
             throws ChimeraFsException;
 
-    public abstract List<FsInode> path2inodes(String path)
+    FsInode path2inode(String path) throws ChimeraFsException;
+
+    FsInode path2inode(String path, FsInode startFrom)
+            throws ChimeraFsException;
+
+    /**
+     * Maps an inode to a persistent identifier.
+     *
+     * May throw FileNotFoundHimeraFsException if the inode does not exist, however since the mapping
+     * is semi persistent (it may only change while Chimera/dCache is shut down), it may be cached and
+     * there is no guarantee that the inode exists if this method does not throw an exception.
+     *
+     * @param inode
+     * @return
+     * @throws ChimeraFsException
+     */
+    String inode2id(FsInode inode) throws ChimeraFsException;
+
+    /**
+     * Maps a persistent identifier to an inode.
+     *
+     * May throw FileNotFoundHimeraFsException if such an inode does not exist, however since the mapping
+     * is semi persistent (it may only change while Chimera/dCache is shut down), it may be cached and
+     * there is no guarantee that the inode exists if this method does not throw an exception.
+     *
+     * If {@code stat} is [@code STAT}, the stat cache of the inode is pre-filled. The stat information
+     * is up to date as of this call.
+     *
+     * @param id
+     * @return
+     * @throws ChimeraFsException
+     */
+    FsInode id2inode(String id, StatCacheOption stat) throws ChimeraFsException;
+
+    List<FsInode> path2inodes(String path)
         throws ChimeraFsException;
 
-    public abstract List<FsInode> path2inodes(String path, FsInode startFrom)
+    List<FsInode> path2inodes(String path, FsInode startFrom)
         throws ChimeraFsException;
 
-    public abstract FsInode inodeOf(FsInode parent, String name)
+    FsInode inodeOf(FsInode parent, String name, StatCacheOption stat)
             throws ChimeraFsException;
 
-    public abstract String inode2path(FsInode inode) throws ChimeraFsException;
+    String inode2path(FsInode inode) throws ChimeraFsException;
 
     /**
      *
@@ -128,44 +189,40 @@ public interface FileSystemProvider extends Closeable {
      * @return path of inode starting from startFrom
      * @throws ChimeraFsException
      */
-    public abstract String inode2path(FsInode inode, FsInode startFrom,
-            boolean inclusive) throws ChimeraFsException;
+    String inode2path(FsInode inode, FsInode startFrom) throws ChimeraFsException;
 
-    public abstract boolean isIoEnabled(FsInode inode)
+    boolean isIoEnabled(FsInode inode)
             throws ChimeraFsException;
 
-    public abstract boolean removeFileMetadata(String path, int level)
+    boolean removeFileMetadata(String path, int level)
             throws ChimeraFsException;
 
-    public abstract FsInode getParentOf(FsInode inode)
+    FsInode getParentOf(FsInode inode)
             throws ChimeraFsException;
 
-    public abstract void setFileName(FsInode dir, String oldName, String newName)
+    void setInodeAttributes(FsInode inode, int level, Stat stat)
             throws ChimeraFsException;
 
-    public abstract void setInodeAttributes(FsInode inode, int level, Stat stat)
+    void setInodeIo(FsInode inode, boolean enable)
             throws ChimeraFsException;
 
-    public abstract void setInodeIo(FsInode inode, boolean enable)
-            throws ChimeraFsException;
+    int write(FsInode inode, int level, long beginIndex, byte[] data,
+              int offset, int len) throws ChimeraFsException;
 
-    public abstract int write(FsInode inode, int level, long beginIndex, byte[] data,
-            int offset, int len) throws ChimeraFsException;
+    int read(FsInode inode, int level, long beginIndex, byte[] data,
+             int offset, int len) throws ChimeraFsException;
 
-    public abstract int read(FsInode inode, int level, long beginIndex, byte[] data,
-            int offset, int len) throws ChimeraFsException;
+    byte[] readLink(String path) throws ChimeraFsException;
 
-    public abstract byte[] readLink(String path) throws ChimeraFsException;
-
-    public abstract byte[] readLink(FsInode inode) throws ChimeraFsException;
-
-    public abstract boolean move(String source, String dest);
+    byte[] readLink(FsInode inode) throws ChimeraFsException;
 
     /**
-     * Move filesystem object from one directory into an other. If {@code source}
-     * and {@code dest} both refer to the  same  existing  file, the move performs no action.
-     * If destination object exists, then source object must be the same type.
+     * Change the name of a file system object. If {@code source} and {@code dest} both
+     * refer to the  same  existing  file, the move performs no action. If destination
+     * object exists, then source object must be the same type and will overwrite the
+     * destination.
      *
+     * @param inode inode of the file to rename
      * @param srcDir inode of the source directory
      * @param source name of the file in srcDir
      * @param destDir inode of the destination directory
@@ -177,89 +234,76 @@ public interface FileSystemProvider extends Closeable {
      * @throws DirNotEmptyHimeraFsException if destination exists, is a directory
      *	    and not empty
      */
-    public abstract boolean move(FsInode srcDir, String source,
-            FsInode destDir, String dest) throws ChimeraFsException;
+    boolean rename(FsInode inode, FsInode srcDir, String source,
+                   FsInode destDir, String dest) throws ChimeraFsException;
 
-    public abstract List<StorageLocatable> getInodeLocations(FsInode inode,
-            int type) throws ChimeraFsException;
+    List<StorageLocatable> getInodeLocations(FsInode inode,
+                                             int type) throws ChimeraFsException;
 
-    public abstract void addInodeLocation(FsInode inode, int type,
-            String location) throws ChimeraFsException;
-
-    public abstract void clearInodeLocation(FsInode inode, int type,
-            String location) throws ChimeraFsException;
-
-    public abstract String[] tags(FsInode inode) throws ChimeraFsException;
-
-    public abstract void createTag(FsInode inode, String name)
+    List<StorageLocatable> getInodeLocations(FsInode inode)
             throws ChimeraFsException;
 
-    public abstract void createTag(FsInode inode, String name, int uid,
-            int gid, int mode) throws ChimeraFsException;
+    void addInodeLocation(FsInode inode, int type,
+                          String location) throws ChimeraFsException;
 
-    public abstract int setTag(FsInode inode, String tagName, byte[] data,
-            int offset, int len) throws ChimeraFsException;
+    void clearInodeLocation(FsInode inode, int type,
+                            String location) throws ChimeraFsException;
 
-    public abstract void removeTag(FsInode dir, String tagName)
+    String[] tags(FsInode inode) throws ChimeraFsException;
+
+    Map<String, byte[]> getAllTags(FsInode inode) throws ChimeraFsException;
+
+    void createTag(FsInode inode, String name)
             throws ChimeraFsException;
 
-    public abstract void removeTag(FsInode dir) throws ChimeraFsException;
+    void createTag(FsInode inode, String name, int uid,
+                   int gid, int mode) throws ChimeraFsException;
 
-    public abstract int getTag(FsInode inode, String tagName, byte[] data,
-            int offset, int len) throws ChimeraFsException;
+    int setTag(FsInode inode, String tagName, byte[] data,
+               int offset, int len) throws ChimeraFsException;
 
-    public abstract Stat statTag(FsInode dir, String name)
+    void removeTag(FsInode dir, String tagName)
             throws ChimeraFsException;
 
-    public void setTagOwner(FsInode_TAG tagInode, String name, int owner) throws ChimeraFsException;
+    void removeTag(FsInode dir) throws ChimeraFsException;
 
-    public void setTagOwnerGroup(FsInode_TAG tagInode, String name, int owner) throws ChimeraFsException;
+    int getTag(FsInode inode, String tagName, byte[] data,
+               int offset, int len) throws ChimeraFsException;
 
-    public void setTagMode(FsInode_TAG tagInode, String name, int mode) throws ChimeraFsException;
-
-    public abstract int getFsId();
-
-    public abstract void setStorageInfo(FsInode inode,
-            InodeStorageInformation storageInfo) throws ChimeraFsException;
-
-    /**
-     *
-     * @param inode
-     * @param accessLatency
-     * @throws ChimeraFsException
-     */
-    public abstract void setAccessLatency(FsInode inode,
-            AccessLatency accessLatency) throws ChimeraFsException;
-
-    public abstract void setRetentionPolicy(FsInode inode,
-            RetentionPolicy retentionPolicy) throws ChimeraFsException;
-
-    public abstract InodeStorageInformation getStorageInfo(FsInode inode)
+    Stat statTag(FsInode dir, String name)
             throws ChimeraFsException;
 
-    public abstract AccessLatency getAccessLatency(FsInode inode)
+    void setTagOwner(FsInode_TAG tagInode, String name, int owner) throws ChimeraFsException;
+
+    void setTagOwnerGroup(FsInode_TAG tagInode, String name, int owner) throws ChimeraFsException;
+
+    void setTagMode(FsInode_TAG tagInode, String name, int mode) throws ChimeraFsException;
+
+    int getFsId();
+
+    void setStorageInfo(FsInode inode,
+                        InodeStorageInformation storageInfo) throws ChimeraFsException;
+
+    InodeStorageInformation getStorageInfo(FsInode inode)
             throws ChimeraFsException;
 
-    public abstract RetentionPolicy getRetentionPolicy(FsInode inode)
+    void setInodeChecksum(FsInode inode, int type,
+                          String checksum) throws ChimeraFsException;
+
+    void removeInodeChecksum(FsInode inode, int type)
             throws ChimeraFsException;
 
-    public abstract void setInodeChecksum(FsInode inode, int type,
-            String checksum) throws ChimeraFsException;
+    Set<Checksum> getInodeChecksums(FsInode inode)
+                    throws ChimeraFsException;
 
-    public abstract void removeInodeChecksum(FsInode inode, int type)
-            throws ChimeraFsException;
-
-    public abstract String getInodeChecksum(FsInode inode, int type)
-            throws ChimeraFsException;
-
-    public abstract String getInfo();
+    String getInfo();
 
     /**
      * Get file system statistic.
      *
      * @return {@link FsStat} of the file system
      */
-    public abstract FsStat getFsStat() throws ChimeraFsException;
+    FsStat getFsStat() throws ChimeraFsException;
 
     /**
      * Get list of Access Control Entries for specified inode.
@@ -267,7 +311,7 @@ public interface FileSystemProvider extends Closeable {
      * @return ordered list of {@link ACE}.
      * @throws ChimeraFsException
      */
-    public abstract List<ACE> getACL(FsInode inode) throws ChimeraFsException;
+    List<ACE> getACL(FsInode inode) throws ChimeraFsException;
 
     /**
      * Set Access Control Entries list for specified inode.
@@ -275,7 +319,7 @@ public interface FileSystemProvider extends Closeable {
      * @param acl
      * @throws ChimeraFsException
      */
-    public abstract void setACL(FsInode inode, List<ACE> acl) throws ChimeraFsException;
+    void setACL(FsInode inode, List<ACE> acl) throws ChimeraFsException;
 
     /**
      * Get a {code FsInode} corresponding to provided bytes.
@@ -283,7 +327,7 @@ public interface FileSystemProvider extends Closeable {
      * @return
      * @throws ChimeraFsException
      */
-    public FsInode inodeFromBytes(byte[] bytes) throws ChimeraFsException;
+    FsInode inodeFromBytes(byte[] bytes) throws ChimeraFsException;
 
     /**
      * Get a bytes corresponding to provided {code FsInode} into.
@@ -291,6 +335,35 @@ public interface FileSystemProvider extends Closeable {
      * @return
      * @throws ChimeraFsException
      */
-    public byte[] inodeToBytes(FsInode inode) throws ChimeraFsException;
+    byte[] inodeToBytes(FsInode inode) throws ChimeraFsException;
 
+    /**
+     * Query the PoolManager for live locality information.
+     * @param node
+     * @return
+     * @throws ChimeraFsException
+     */
+    String getFileLocality(FsInode_PLOC node) throws ChimeraFsException;
+
+    /**
+     * Implementation-specific.  Can be NOP.
+     *
+     * @param inode
+     * @param lifetime
+     * @throws ChimeraFsException
+     */
+    void pin(FsInode inode, long lifetime) throws ChimeraFsException;
+
+    /**
+     * Implementation-specific.  Can be NOP.
+     *
+     * @param inode
+     * @throws ChimeraFsException
+     */
+    void unpin(FsInode inode) throws ChimeraFsException;
+
+    enum StatCacheOption
+    {
+        STAT, NO_STAT
+    }
 }

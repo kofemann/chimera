@@ -19,8 +19,12 @@ package org.dcache.chimera;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.SQLException;
+import javax.sql.DataSource;
+
+import java.util.EnumSet;
+
+import org.dcache.acl.enums.AceFlags;
+import org.dcache.acl.enums.RsType;
 
 
 /**
@@ -34,12 +38,30 @@ class DB2FsSqlDriver extends FsSqlDriver {
      *  this is a utility class which issues SQL queries on database
      *
      */
-    protected DB2FsSqlDriver() {
+    protected DB2FsSqlDriver(DataSource dataSource) throws ChimeraFsException
+    {
+        super(dataSource);
         _log.info("Running DB2 specific Driver");
     }
 
     @Override
-    void copyTags(Connection dbConnection, FsInode orign, FsInode destination) throws SQLException {
+    void copyTags(FsInode orign, FsInode destination) {
         // TODO: db2 needs some other solution
+    }
+
+    @Override
+    void copyAcl(FsInode source, FsInode inode, RsType type, EnumSet<AceFlags> mask, EnumSet<AceFlags> flags) {
+        int msk = mask.stream().mapToInt(AceFlags::getValue).reduce(0, (a, b) -> a | b);
+        int flgs = flags.stream().mapToInt(AceFlags::getValue).reduce(0, (a, b) -> a | b);
+        _jdbc.update("INSERT INTO t_acl (inumber,rs_type,type,flags,access_msk,who,who_id,ace_order) " +
+                     "SELECT ?, ?, type, BITANDNOT(flags, ?), access_msk, who, who_id, ace_order " +
+                     "FROM t_acl WHERE inumber = ? AND BITAND(flags, ?) > 0",
+                     ps -> {
+                         ps.setLong(1, inode.ino());
+                         ps.setInt(2, type.getValue());
+                         ps.setInt(3, msk);
+                         ps.setLong(4, source.ino());
+                         ps.setInt(5, flgs);
+                     });
     }
 }

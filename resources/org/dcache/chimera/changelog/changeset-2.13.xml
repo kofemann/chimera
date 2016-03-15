@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+     http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd">
+
+    <changeSet author="behrmann" id="1" dbms="postgresql">
+        <comment>Update trash trigger to add an itype 2 marker to trash.</comment>
+        <createProcedure>
+            DROP TRIGGER IF EXISTS tgr_locationinfo_trash ON t_inodes;
+
+            --
+            --  store location of deleted  inodes in trash table
+            --
+            -- stores a old values into the trash table except last access time,
+            -- which replaced with a time, when the trigger was running
+            --
+
+            CREATE OR REPLACE FUNCTION f_locationinfo2trash() RETURNS TRIGGER AS $t_inodes_trash$
+            BEGIN
+
+                IF (TG_OP = 'DELETE') THEN
+
+                    INSERT INTO t_locationinfo_trash
+                        SELECT
+                            ipnfsid ,
+                            itype,
+                            ilocation ,
+                            ipriority,
+                            ictime ,
+                            iatime ,
+                            istate
+                        FROM t_locationinfo
+                        WHERE ipnfsid = OLD.ipnfsid
+                      UNION
+                        SELECT OLD.ipnfsid, 2, '', 0, now(), now(), 1;
+
+                END IF;
+
+                RETURN OLD;
+            END;
+
+            $t_inodes_trash$ LANGUAGE plpgsql;
+
+
+            --
+            -- trigger to store removed inodes
+            --
+
+            CREATE TRIGGER tgr_locationinfo_trash BEFORE DELETE ON t_inodes
+                FOR EACH ROW EXECUTE PROCEDURE f_locationinfo2trash();
+        </createProcedure>
+
+
+        <rollback>
+            <createProcedure>
+                DROP TRIGGER IF EXISTS tgr_locationinfo_trash ON t_inodes;
+
+                --
+                --  store location of deleted  inodes in trash table
+                --
+                -- stores a old values into the trash table except last access time,
+                -- which replaced with a time, when the trigger was running
+                --
+
+                CREATE OR REPLACE FUNCTION f_locationinfo2trash() RETURNS TRIGGER AS $t_inodes_trash$
+                    BEGIN
+
+                    IF (TG_OP = 'DELETE') THEN
+
+                        INSERT INTO t_locationinfo_trash SELECT
+                            ipnfsid ,
+                            itype,
+                            ilocation ,
+                            ipriority,
+                            ictime ,
+                            iatime ,
+                            istate FROM t_locationinfo WHERE ipnfsid = OLD.ipnfsid;
+
+                    END IF;
+
+                    RETURN OLD;
+                END;
+
+                $t_inodes_trash$ LANGUAGE plpgsql;
+
+
+                --
+                -- trigger to store removed inodes
+                --
+
+                CREATE TRIGGER tgr_locationinfo_trash BEFORE DELETE ON t_inodes
+                    FOR EACH ROW EXECUTE PROCEDURE f_locationinfo2trash();
+            </createProcedure>
+        </rollback>
+    </changeSet>
+
+    <changeSet author="behrmann" id="2" dbms="hsqldb">
+        <comment>Update trash trigger to add an itype 0 marker to trash.</comment>
+        <!-- A BEFORE DELETE trigger on t_inodes would have been easier, but hsqldb
+             does not allow data manipulation statements in BEFORE triggers. -->
+        <createProcedure>
+            CREATE TRIGGER tgr_locationinfo_trash2 AFTER DELETE ON t_inodes
+                REFERENCING OLD ROW old
+                FOR EACH ROW
+                INSERT INTO t_locationinfo_trash
+                    VALUES (old.ipnfsid, 2, '', 0, now(), now(), 1)
+        </createProcedure>
+        <rollback>
+            <createProcedure>
+                DROP TRIGGER tgr_locationinfo_trash2;
+            </createProcedure>
+        </rollback>
+    </changeSet>
+
+    <changeSet author="behrmann" id="3">
+        <createIndex tableName="t_locationinfo_trash" indexName="i_locationinfo_trash_itype_ilocation">
+            <column name="itype"></column>
+            <column name="ilocation"></column>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="behrmann" id="4">
+        <comment>Removes leaked tag inodes</comment>
+
+        <createTable tableName="t_tags_inodes2">
+            <column name="itagid" type="varchar(36)"/>
+            <column name="imode" type="INT"/>
+            <column name="inlink" type="INT"/>
+            <column name="iuid" type="INT"/>
+            <column name="igid" type="INT"/>
+            <column name="isize" type="INT"/>
+            <column name="ictime" type="DATETIME"/>
+            <column name="iatime" type="DATETIME"/>
+            <column name="imtime" type="DATETIME"/>
+            <column name="ivalue" type="BLOB"/>
+        </createTable>
+
+        <sql>
+            INSERT INTO t_tags_inodes2 (SELECT * FROM t_tags_inodes i WHERE EXISTS (SELECT 1 FROM t_tags t WHERE t.itagid = i.itagid))
+        </sql>
+
+        <dropForeignKeyConstraint baseTableName="t_tags" constraintName="t_tags_itagid_fkey"/>
+
+        <sql>
+            TRUNCATE TABLE t_tags_inodes
+        </sql>
+
+        <sql>
+            INSERT INTO t_tags_inodes SELECT * FROM t_tags_inodes2
+        </sql>
+
+        <addForeignKeyConstraint baseColumnNames="itagid" baseTableName="t_tags"
+                                 constraintName="t_tags_itagid_fkey"
+                                 deferrable="false"
+                                 initiallyDeferred="false"
+                                 onDelete="NO ACTION"
+                                 onUpdate="NO ACTION"
+                                 referencedColumnNames="itagid"
+                                 referencedTableName="t_tags_inodes"/>
+
+        <dropTable tableName="t_tags_inodes2"/>
+
+        <rollback/>
+    </changeSet>
+</databaseChangeLog>

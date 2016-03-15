@@ -17,12 +17,22 @@
 package org.dcache.chimera;
 
 import com.google.common.base.Throwables;
+import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.NonTransientDataAccessResourceException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.TransactionSystemException;
+import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import javax.sql.DataSource;
 
@@ -31,7 +41,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -39,12 +53,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import org.dcache.acl.ACE;
+import org.dcache.acl.enums.RsType;
 import org.dcache.chimera.posix.Stat;
-import org.dcache.chimera.store.AccessLatency;
 import org.dcache.chimera.store.InodeStorageInformation;
-import org.dcache.chimera.store.RetentionPolicy;
+import org.dcache.chimera.store.Checksum;
 
-import static org.dcache.chimera.util.SqlHelper.*;
+import static com.google.common.base.Preconditions.checkArgument;
+import static org.dcache.acl.enums.AceFlags.*;
+import static org.dcache.chimera.FileSystemProvider.StatCacheOption.NO_STAT;
+import static org.dcache.chimera.FileSystemProvider.StatCacheOption.STAT;
+import static org.dcache.chimera.util.SqlHelper.tryToClose;
 
 /**
  *
@@ -56,6 +74,13 @@ import static org.dcache.chimera.util.SqlHelper.*;
  * @Threadsafe
  */
 public class JdbcFs implements FileSystemProvider {
+    /**
+     * common error message for unimplemented
+     */
+    private static final String NOT_IMPL =
+                    "this operation is unsupported for this "
+                                    + "file system; please install a dCache-aware "
+                                    + "implementation of the file system interface";
 
     /**
      * logger
@@ -65,14 +90,12 @@ public class JdbcFs implements FileSystemProvider {
      * the number of pnfs levels. Level zero associated with file real
      * content, which is not our regular case.
      */
-    static private final int LEVELS_NUMBER = 7;
-    private final FsInode _rootInode;
-    private final String _wormID;
+    private static final int LEVELS_NUMBER = 7;
 
     /**
      * minimal binary handle size which can be processed.
     */
-    private final static int MIN_HANDLE_LEN = 4;
+    private static final int MIN_HANDLE_LEN = 4;
     /**
      * SQL query engine
      */
@@ -82,32 +105,52 @@ public class JdbcFs implements FileSystemProvider {
      * Database connection pool
      */
     private final DataSource _dbConnectionsPool;
+
+    private final PlatformTransactionManager _tx;
+
+    private final TransactionDefinition _txDefinition = new DefaultTransactionDefinition();
+
     /*
      * A dummy constant key force bay cache interface. the value doesn't
      * matter - only that it's the same value every time
      */
-    private final Integer DUMMY_KEY = 0;
+    private static final Integer DUMMY_KEY = 0;
     /**
      * Cache value of FsStat
      */
-    private final Executor _fsStatUpdateExecutor
-            = Executors.newSingleThreadExecutor(
+    private final Executor _fsStatUpdateExecutor =
+            Executors.newSingleThreadExecutor(
                     new ThreadFactoryBuilder()
-                    .setNameFormat("fsstat-updater-thread-%d")
-                    .build()
+                            .setNameFormat("fsstat-updater-thread-%d")
+                            .build()
             );
 
     private final LoadingCache<Object, FsStat> _fsStatCache
             = CacheBuilder.newBuilder()
-            .refreshAfterWrite(100, TimeUnit.MILLISECONDS)
-            .build(
+                .refreshAfterWrite(100, TimeUnit.MILLISECONDS)
+                .build(
                     CacheLoader.asyncReloading(new CacheLoader<Object, FsStat>() {
 
                         @Override
                         public FsStat load(Object k) throws Exception {
                             return JdbcFs.this.getFsStat0();
                         }
-                    }, _fsStatUpdateExecutor));
+                    }
+            , _fsStatUpdateExecutor));
+
+    /* The PNFS ID to inode number mapping will never change while dCache is running.
+     */
+    protected final Cache<String, Long> _inoCache =
+            CacheBuilder.newBuilder()
+                    .maximumSize(100000)
+                    .build();
+
+    /* The inode number to PNFS ID mapping will never change while dCache is running.
+     */
+    protected final Cache<Long, String> _idCache =
+            CacheBuilder.newBuilder()
+                    .maximumSize(100000)
+                    .build();
 
     /**
      * current fs id
@@ -125,34 +168,74 @@ public class JdbcFs implements FileSystemProvider {
     /**
      * maximal length of an object name in a directory.
      */
-    private final static int MAX_NAME_LEN = 255;
+    private static final int MAX_NAME_LEN = 255;
 
-    public JdbcFs(DataSource dataSource, String dialect) {
-        this(dataSource, dialect, 0);
+    public JdbcFs(DataSource dataSource, PlatformTransactionManager txManager, String dialect) throws ChimeraFsException
+    {
+        this(dataSource, txManager, dialect, 0);
     }
 
-    public JdbcFs(DataSource dataSource, String dialect, int id) {
-
+    public JdbcFs(DataSource dataSource, PlatformTransactionManager txManager, String dialect, int id) throws ChimeraFsException
+    {
         _dbConnectionsPool = dataSource;
         _fsId = id;
 
+        _tx = txManager;
 
         // try to get database dialect specific query engine
-        _sqlDriver = FsSqlDriver.getDriverInstance(dialect);
-
-        _rootInode = new FsInode(this, "000000000000000000000000000000000000");
-
-        String wormID = null;
-        try {
-            wormID = getWormID().toString();
-        } catch (Exception e) {
-        }
-        _wormID = wormID;
+        _sqlDriver = FsSqlDriver.getDriverInstance(dialect, dataSource);
     }
 
     private FsInode getWormID() throws ChimeraFsException {
 
         return this.path2inode("/admin/etc/config");
+    }
+
+    private <T> T inTransaction(FallibleTransactionCallback<T> callback)
+            throws ChimeraFsException
+    {
+        TransactionStatus status = _tx.getTransaction(_txDefinition);
+        T result;
+        try {
+            result = callback.doInTransaction(status);
+            _tx.commit(status);
+        } catch (ChimeraFsException e) {
+            rollbackOnException(status, e);
+            throw e;
+        } catch (NonTransientDataAccessResourceException e) {
+            rollbackOnException(status, e);
+            throw new BackEndErrorHimeraFsException(e.getMessage(), e);
+        } catch (DataAccessException e) {
+            rollbackOnException(status, e);
+            throw new IOHimeraFsException(e.getMessage(), e);
+        } catch (Exception e) {
+            rollbackOnException(status, e);
+            throw e;
+        }
+        return result;
+    }
+
+    /**
+     * Perform a rollback, handling rollback exceptions properly.
+     * @param status object representing the transaction
+     * @param ex the thrown application exception or error
+     * @throws TransactionException in case of a rollback error
+     */
+    private void rollbackOnException(TransactionStatus status, Throwable ex) throws TransactionException {
+        _log.debug("Initiating transaction rollback on application exception", ex);
+        try {
+            _tx.rollback(status);
+        } catch (TransactionSystemException e) {
+            _log.error("Application exception overridden by rollback exception", ex);
+            e.initApplicationException(ex);
+            throw e;
+        } catch (RuntimeException e) {
+            _log.error("Application exception overridden by rollback exception", ex);
+            throw e;
+        } catch (Error err) {
+            _log.error("Application exception overridden by rollback error", ex);
+            throw err;
+        }
     }
 
     //////////////////////////////////////////////////////////
@@ -163,14 +246,13 @@ public class JdbcFs implements FileSystemProvider {
     /////////////////////////////////////////////////////////
     @Override
     public FsInode createLink(String src, String dest) throws ChimeraFsException {
-
         File file = new File(src);
-        return createLink(this.path2inode(file.getParent()), file.getName(), dest);
+        return inTransaction(status -> createLink(path2inode(file.getParent()), file.getName(), dest));
     }
 
     @Override
     public FsInode createLink(FsInode parent, String name, String dest) throws ChimeraFsException {
-        return createLink(parent, name, 0, 0, 0644, dest.getBytes());
+        return inTransaction(status -> createLink(parent, name, 0, 0, 0644, dest.getBytes()));
     }
 
     @Override
@@ -178,44 +260,24 @@ public class JdbcFs implements FileSystemProvider {
 
         checkNameLength(name);
 
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        FsInode inode;
-        try {
-
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            if ((parent.statCache().getMode() & UnixPermission.S_ISGID) != 0) {
-                gid = parent.statCache().getGid();
+        return inTransaction(status -> {
+            FsInode inode;
+            try {
+                Stat stat = parent.statCache();
+                int group = (stat.getMode() & UnixPermission.S_ISGID) != 0 ? stat.getGid() : gid;
+                inode = _sqlDriver.createFile(parent, name, uid, group, mode, UnixPermission.S_IFLNK);
+                // link is a regular file where content is a reference
+                _sqlDriver.setInodeIo(inode, true);
+                _sqlDriver.write(inode, 0, 0, dest, 0, dest.length);
+                _sqlDriver.copyAcl(parent, inode, RsType.FILE,
+                                   EnumSet.of(INHERIT_ONLY_ACE, DIRECTORY_INHERIT_ACE, FILE_INHERIT_ACE),
+                                   EnumSet.of(FILE_INHERIT_ACE));
+                fillIdCaches(inode);
+            } catch (DuplicateKeyException e) {
+                throw new FileExistsChimeraFsException(e);
             }
-
-            inode = _sqlDriver.createFile(dbConnection, parent, name, uid, gid, mode, UnixPermission.S_IFLNK);
-            // link is a regular file where content is a reference
-            _sqlDriver.setInodeIo(dbConnection, inode, true);
-            _sqlDriver.write(dbConnection, inode, 0, 0, dest, 0, dest.length);
-
-            dbConnection.commit();
-
-        } catch (SQLException se) {
-            tryToRollback(dbConnection);
-
-            if (_sqlDriver.isDuplicatedKeyError(se)) {
-                throw new FileExistsChimeraFsException();
-            }
-            _log.error("createLink ", se);
-            throw new IOHimeraFsException(se.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return inode;
+            return inode;
+        });
     }
 
     /**
@@ -233,57 +295,32 @@ public class JdbcFs implements FileSystemProvider {
 
         checkNameLength(name);
 
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.createEntryInParent(dbConnection, parent, name, inode);
-            _sqlDriver.incNlink(dbConnection, inode);
-            _sqlDriver.incNlink(dbConnection, parent);
-
-            dbConnection.commit();
-
-        } catch (SQLException e) {
-            tryToRollback(dbConnection);
-
-            if(_sqlDriver.isDuplicatedKeyError(e)) {
-                throw new FileExistsChimeraFsException();
+        return inTransaction(status -> {
+            try {
+                _sqlDriver.createEntryInParent(parent, name, inode);
+                _sqlDriver.incNlink(inode);
+                _sqlDriver.incNlink(parent);
+            } catch (DuplicateKeyException e) {
+                throw new FileExistsChimeraFsException(e);
             }
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return inode;
+            return inode;
+        });
     }
 
     @Override
     public FsInode createFile(String path) throws ChimeraFsException {
-
         File file = new File(path);
-
-        return this.createFile(this.path2inode(file.getParent()), file.getName());
-
+        return inTransaction(status -> createFile(path2inode(file.getParent()), file.getName()));
     }
 
     @Override
     public FsInode createFile(FsInode parent, String name) throws ChimeraFsException {
-
-        return createFile(parent, name, 0, 0, 0644);
+        return inTransaction(status -> createFile(parent, name, 0, 0, 0644));
     }
 
     @Override
     public FsInode createFileLevel(FsInode inode, int level) throws ChimeraFsException {
-        return createFileLevel(inode, 0, 0, 0644, level);
+        return inTransaction(status -> _sqlDriver.createLevel(inode, 0, 0, 0644 | UnixPermission.S_IFREG, level));
     }
 
     @Override
@@ -293,88 +330,67 @@ public class JdbcFs implements FileSystemProvider {
 
     @Override
     public FsInode createFile(FsInode parent, String name, int owner, int group, int mode, int type) throws ChimeraFsException {
+        if (name.startsWith(".(")) { // special files only
+            String[] cmd = PnfsCommandProcessor.process(name);
 
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        FsInode inode = null;
-
-        try {
-
-            if (name.startsWith(".(")) { // special files only
-
-                String[] cmd = PnfsCommandProcessor.process(name);
-
-                if (name.startsWith(".(tag)(") && (cmd.length == 2)) {
-                    this.createTag(parent, cmd[1], owner, group, 0644);
-                    return new FsInode_TAG(this, parent.toString(), cmd[1]);
-                }
-
-                if (name.startsWith(".(pset)(") || name.startsWith(".(fset)(")) {
-                    throw new ChimeraFsException("Not supported");
-                }
-
-                if (name.startsWith(".(use)(") && (cmd.length == 3)) {
-                    FsInode useInode = this.inodeOf(parent, cmd[2]);
-                    int level = Integer.parseInt(cmd[1]);
-
-                    try {
-                        // read/write only
-                        dbConnection.setAutoCommit(false);
-
-                        inode = _sqlDriver.createLevel(dbConnection, useInode, useInode.stat().getUid(), useInode.stat().getGid(),
-                                useInode.stat().getMode(), level);
-                        dbConnection.commit();
-
-                    } catch (SQLException se) {
-                        tryToRollback(dbConnection);
-                        if (_sqlDriver.isDuplicatedKeyError(se)) {
-                            throw new FileExistsChimeraFsException(name);
-                        }
-                        _log.error("create File: ", se);
-                    }
-                }
-
-                if (name.startsWith(".(access)(") && (cmd.length == 3)) {
-
-                    FsInode accessInode = new FsInode(this, cmd[1]);
-                    int accessLevel = Integer.parseInt(cmd[2]);
-                    if (accessLevel == 0) {
-                        inode = accessInode;
-                    } else {
-                        try {
-                            // read/write only
-                            dbConnection.setAutoCommit(false);
-
-                            inode = _sqlDriver.createLevel(dbConnection, accessInode,
-                                    accessInode.stat().getUid(), accessInode.stat().getGid(),
-                                    accessInode.stat().getMode(), accessLevel);
-                            dbConnection.commit();
-
-                        } catch (SQLException se) {
-                            tryToRollback(dbConnection);
-                            if (_sqlDriver.isDuplicatedKeyError(se)) {
-                                throw new FileExistsChimeraFsException(name);
-                            }
-                            _log.error("create File: ", se);
-                        }
-                    }
-                }
-
-                return inode;
+            if (name.startsWith(".(tag)(") && (cmd.length == 2)) {
+                this.createTag(parent, cmd[1], owner, group, 0644);
+                return new FsInode_TAG(this, parent.ino(), cmd[1]);
             }
 
+            if (name.startsWith(".(pset)(") || name.startsWith(".(fset)(")) {
+                /**
+                 * This is not 100% correct, as we throw exist even if
+                 * someone tries to set attribute for a file which does not exist.
+                 */
+                throw new FileExistsChimeraFsException(name);
+            }
+
+            if (name.startsWith(".(use)(") && (cmd.length == 3)) {
+                int level = Integer.parseInt(cmd[1]);
+                return inTransaction(status -> {
+                    FsInode useInode = _sqlDriver.inodeOf(parent, cmd[2], STAT);
+                    if (useInode == null) {
+                        throw new FileNotFoundHimeraFsException(cmd[2]);
+                    }
+                    try {
+                        Stat stat = useInode.statCache();
+                        return _sqlDriver.createLevel(useInode, stat.getUid(),
+                                                      stat.getGid(),
+                                                      stat.getMode(), level);
+                    } catch (DuplicateKeyException e) {
+                        throw new FileExistsChimeraFsException(name, e);
+                    }
+                });
+            }
+
+            if (name.startsWith(".(access)(") && (cmd.length == 3)) {
+                int accessLevel = Integer.parseInt(cmd[2]);
+                if (accessLevel == 0) {
+                    return id2inode(cmd[1], NO_STAT);
+                }
+                return inTransaction(status -> {
+                    try {
+                        FsInode accessInode = id2inode(cmd[1], STAT);
+                        Stat stat = accessInode.statCache();
+                        return _sqlDriver.createLevel(accessInode,
+                                                      stat.getUid(), stat.getGid(),
+                                                      stat.getMode(), accessLevel);
+                    } catch (DuplicateKeyException e) {
+                        throw new FileExistsChimeraFsException(name, e);
+                    }
+                });
+            }
+
+            return null;
+        }
+
+        checkNameLength(name);
+        checkArgument(UnixPermission.getType(type) != UnixPermission.S_IFDIR);
+
+        return inTransaction(status -> {
             try {
-
-                checkNameLength(name);
-
-                dbConnection.setAutoCommit(false);
-                Stat parentStat = _sqlDriver.stat(dbConnection, parent);
+                Stat parentStat = parent.statCache();
                 if (parentStat == null) {
                     throw new FileNotFoundHimeraFsException("parent=" + parent.toString());
                 }
@@ -383,35 +399,24 @@ public class JdbcFs implements FileSystemProvider {
                     throw new NotDirChimeraException(parent);
                 }
 
-                if ((parentStat.getMode() & UnixPermission.S_ISGID) != 0) {
-                    group = parent.statCache().getGid();
-                }
-
-                inode = _sqlDriver.createFile(dbConnection, parent, name, owner, group, mode, type);
-                dbConnection.commit();
-
-            } catch (SQLException se) {
-
-                tryToRollback(dbConnection);
-                if (_sqlDriver.isDuplicatedKeyError(se)) {
-                    throw new FileExistsChimeraFsException();
-                }
-                _log.error("create File: ", se);
-                throw new IOHimeraFsException(se.getMessage());
+                int gid = (parentStat.getMode() & UnixPermission.S_ISGID) != 0 ? parentStat.getGid() : group;
+                FsInode inode = _sqlDriver.createFile(parent, name, owner, gid, mode, type);
+                _sqlDriver.copyAcl(parent, inode, RsType.FILE,
+                                   EnumSet.of(INHERIT_ONLY_ACE, DIRECTORY_INHERIT_ACE, FILE_INHERIT_ACE),
+                                   EnumSet.of(FILE_INHERIT_ACE));
+                fillIdCaches(inode);
+                return inode;
+            } catch (DuplicateKeyException e) {
+                throw new FileExistsChimeraFsException(e);
             }
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-
-        return inode;
+        });
     }
 
     /**
      * Create a new entry with given inode id.
      *
      * @param parent
-     * @param inode
+     * @param id
      * @param name
      * @param owner
      * @param group
@@ -420,147 +425,50 @@ public class JdbcFs implements FileSystemProvider {
      * @throws ChimeraFsException
      */
     @Override
-    public void createFileWithId(FsInode parent, FsInode inode, String name, int owner, int group, int mode, int type) throws ChimeraFsException {
+    public void createFileWithId(FsInode parent, String id, String name, int owner, int group, int mode, int type) throws ChimeraFsException {
 
         checkNameLength(name);
+        checkArgument((type & UnixPermission.S_IFDIR) == 0);
 
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-
-            if (!parent.exists()) {
-                throw new FileNotFoundHimeraFsException("parent=" + parent.toString());
-            }
-
-            if (parent.isDirectory()) {
-                // read/write only
-                dbConnection.setAutoCommit(false);
-
-                if ((parent.statCache().getMode() & UnixPermission.S_ISGID) != 0) {
-                    group = parent.statCache().getGid();
+        inTransaction(status -> {
+            try {
+                if (!parent.exists()) {
+                    throw new FileNotFoundHimeraFsException("parent=" + parent.toString());
                 }
-
-                inode = _sqlDriver.createFileWithId(dbConnection, parent, inode, name, owner, group, mode, type);
-                dbConnection.commit();
-
-            } else {
-                throw new NotDirChimeraException(parent);
+                if (!parent.isDirectory()) {
+                    throw new NotDirChimeraException(parent);
+                }
+                Stat stat = parent.statCache();
+                int gid = (stat.getMode() & UnixPermission.S_ISGID) != 0 ? stat.getGid() : group;
+                FsInode inode = _sqlDriver.createFileWithId(parent, id, name, owner, gid, mode, type);
+                _sqlDriver.copyAcl(parent, inode, RsType.FILE,
+                                   EnumSet.of(INHERIT_ONLY_ACE, DIRECTORY_INHERIT_ACE, FILE_INHERIT_ACE),
+                                   EnumSet.of(FILE_INHERIT_ACE));
+                fillIdCaches(inode);
+                return null;
+            } catch (DuplicateKeyException e) {
+                throw new FileExistsChimeraFsException(e);
             }
-
-        } catch (SQLException se) {
-
-            tryToRollback(dbConnection);
-            if (_sqlDriver.isDuplicatedKeyError(se)) {
-                throw new FileExistsChimeraFsException();
-            }
-            _log.error("create File: ", se);
-            throw new IOHimeraFsException(se.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        });
     }
 
-    FsInode createFileLevel(FsInode inode, int owner, int group, int mode, int level) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        // if exist table parent_dir create an entry
-        FsInode levelInode = null;
-        try {
-
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            levelInode = _sqlDriver.createLevel(dbConnection, inode, owner, group, mode | UnixPermission.S_IFREG, level);
-            dbConnection.commit();
-
-        } catch (SQLException se) {
-            _log.error("create level: ", se);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(se.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return levelInode;
-    }
-
+    @Override
     public String[] listDir(String dir) {
-        String[] list = null;
-
         try {
-            list = this.listDir(this.path2inode(dir));
-        } catch (Exception e) {
+            return listDir(path2inode(dir));
+        } catch (ChimeraFsException e) {
+            return null;
         }
-
-        return list;
     }
 
-    public String[] listDir(FsInode dir) throws IOHimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        String[] list = null;
-
-        try {
-
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            list = _sqlDriver.listDir(dbConnection, dir);
-        } catch (SQLException se) {
-            _log.error("list: ", se);
-            throw new IOHimeraFsException(se.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return list;
+    @Override
+    public String[] listDir(FsInode dir) throws ChimeraFsException {
+        return _sqlDriver.listDir(dir);
     }
 
     @Override
     public DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir) throws IOHimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            return _sqlDriver.newDirectoryStream(dbConnection, dir);
-
-        } catch (SQLException se) {
-            _log.error("list full: ", se);
-            tryToClose(dbConnection);
-            throw new IOHimeraFsException(se.getMessage());
-        }
-        /*
-         * Database resources are close by  DirectoryStreamB.close()
-         */
+        return _sqlDriver.newDirectoryStream(dir);
     }
 
     @Override
@@ -570,140 +478,80 @@ public class JdbcFs implements FileSystemProvider {
 
         String parentPath = filePath.getParent();
         if (parentPath == null) {
-            throw new ChimeraFsException("Cannot delete file system root.");
+            throw new InvalidArgumentChimeraException("Cannot delete file system root.");
         }
 
-        FsInode parent = path2inode(parentPath);
-        String name = filePath.getName();
-        this.remove(parent, name);
+        inTransaction(status -> {
+            FsInode parent = path2inode(parentPath);
+            String name = filePath.getName();
+            FsInode inode = _sqlDriver.inodeOf(parent, name, STAT);
+            if (inode == null || !_sqlDriver.remove(parent, name, inode)) {
+                throw new FileNotFoundHimeraFsException(path);
+            }
+            return null;
+        });
     }
 
     @Override
-    public void remove(FsInode parent, String name) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.remove(dbConnection, parent, name);
-            dbConnection.commit();
-        } catch (ChimeraFsException hfe) {
-            tryToRollback(dbConnection);
-            throw hfe;
-        } catch (SQLException e) {
-            _log.error("delete", e);
-            tryToRollback(dbConnection);
-            throw new BackEndErrorHimeraFsException(e.getMessage(), e);
-        } finally {
-            tryToClose(dbConnection);
-        }
+    public void remove(FsInode directory, String name, FsInode inode) throws ChimeraFsException {
+        inTransaction(status -> {
+            if (!_sqlDriver.remove(directory, name, inode)) {
+                throw new FileNotFoundHimeraFsException(name);
+            }
+            return null;
+        });
     }
 
     @Override
     public void remove(FsInode inode) throws ChimeraFsException {
-
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            FsInode parent = _sqlDriver.getParentOf(dbConnection, inode);
-            if (parent == null) {
-                throw new FileNotFoundHimeraFsException("No such file.");
-            }
-
+        inTransaction(status -> {
             if (inode.type() != FsInodeType.INODE) {
                 // now allowed
-                throw new FileNotFoundHimeraFsException("Not a file.");
+                throw new InvalidArgumentChimeraException("Not a file.");
             }
-
-            _sqlDriver.remove(dbConnection, parent, inode);
-            dbConnection.commit();
-        } catch (ChimeraFsException hfe) {
-            tryToRollback(dbConnection);
-            throw hfe;
-        } catch (SQLException e) {
-            _log.error("delete", e);
-            tryToRollback(dbConnection);
-            throw new BackEndErrorHimeraFsException(e.getMessage(), e);
-        } finally {
-            tryToClose(dbConnection);
-        }
+            if (inode.ino() == _sqlDriver.getRootInumber()) {
+                throw new InvalidArgumentChimeraException("Cannot delete file system root.");
+            }
+            if (!inode.exists()) {
+                throw new FileNotFoundHimeraFsException("No such file.");
+            }
+            if (inode.isDirectory() && inode.statCache().getNlink() > 2) {
+                throw new DirNotEmptyHimeraFsException("Directory is not empty");
+            }
+            _sqlDriver.remove(inode);
+            return null;
+        });
     }
 
     @Override
     public Stat stat(String path) throws ChimeraFsException {
-        return this.stat(this.path2inode(path));
+        return stat(path2inode(path));
     }
 
     @Override
     public Stat stat(FsInode inode) throws ChimeraFsException {
-        return this.stat(inode, 0);
+        return stat(inode, 0);
     }
 
     @Override
     public Stat stat(FsInode inode, int level) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        Stat stat = null;
-
-        try {
-
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            stat = _sqlDriver.stat(dbConnection, inode, level);
-
-        } catch (SQLException e) {
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
+        Stat stat = _sqlDriver.stat(inode, level);
         if (stat == null) {
             throw new FileNotFoundHimeraFsException(inode.toString());
         }
-
+        if (level == 0) {
+            _inoCache.put(stat.getId(), stat.getIno());
+            _idCache.put(stat.getIno(), stat.getId());
+        }
         return stat;
     }
 
     @Override
     public FsInode mkdir(String path) throws ChimeraFsException {
-
         int li = path.lastIndexOf('/');
         String file = path.substring(li + 1);
-        String dir;
-        if (li > 1) {
-            dir = path.substring(0, li);
-        } else {
-            dir = "/";
-        }
-
-        return this.mkdir(this.path2inode(dir), file);
+        String dir = (li > 1) ? path.substring(0, li) : "/";
+        return inTransaction(status -> mkdir(path2inode(dir), file));
     }
 
     @Override
@@ -713,126 +561,155 @@ public class JdbcFs implements FileSystemProvider {
 
     @Override
     public FsInode mkdir(FsInode parent, String name, int owner, int group, int mode) throws ChimeraFsException {
-
         checkNameLength(name);
 
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
+        return inTransaction(status -> {
+            try {
+                if (!parent.isDirectory()) {
+                    throw new NotDirChimeraException(parent);
+                }
 
-        FsInode inode = null;
+                Stat stat = parent.statCache();
+                int gid, perm;
+                if ((stat.getMode() & UnixPermission.S_ISGID) != 0) {
+                    gid = stat.getGid();
+                    perm = mode | UnixPermission.S_ISGID;
+                } else {
+                    gid = group;
+                    perm = mode;
+                }
 
-        try {
-
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            if ((parent.statCache().getMode() & UnixPermission.S_ISGID) != 0) {
-                group = parent.statCache().getGid();
-                mode |= UnixPermission.S_ISGID;
+                FsInode inode = _sqlDriver.mkdir(parent, name, owner, gid, perm);
+                _sqlDriver.copyTags(parent, inode);
+                _sqlDriver.copyAcl(parent, inode, RsType.DIR, EnumSet.of(INHERIT_ONLY_ACE),
+                                   EnumSet.of(FILE_INHERIT_ACE, DIRECTORY_INHERIT_ACE));
+                fillIdCaches(inode);
+                return inode;
+            } catch (DuplicateKeyException e) {
+                throw new FileExistsChimeraFsException(name, e);
             }
+        });
+    }
 
-            inode = _sqlDriver.mkdir(dbConnection, parent, name, owner, group, mode);
-            _sqlDriver.copyTags(dbConnection, parent, inode);
-            dbConnection.commit();
-
-        } catch (SQLException se) {
-
-            tryToRollback(dbConnection);
-            if (_sqlDriver.isDuplicatedKeyError(se)) {
-                throw new FileExistsChimeraFsException(name);
-            }
-            _log.error("mkdir", se);
-            throw new ChimeraFsException(se.getMessage());
-        } finally {
-            tryToClose(dbConnection);
+    private void fillIdCaches(FsInode inode)
+    {
+        Stat stat = inode.getStatCache();
+        if (stat != null) {
+            _inoCache.put(stat.getId(), stat.getIno());
+            _idCache.put(stat.getIno(), stat.getId());
         }
+    }
 
-        return inode;
+    @Override
+    public FsInode mkdir(FsInode parent, String name, int owner, int group, int mode,
+                         List<ACE> acl, Map<String, byte[]> tags)
+            throws ChimeraFsException
+    {
+        checkNameLength(name);
+
+        return inTransaction(status -> {
+            try {
+                if (!parent.isDirectory()) {
+                    throw new NotDirChimeraException(parent);
+                }
+                Stat stat = parent.statCache();
+                int gid, perm;
+                if ((stat.getMode() & UnixPermission.S_ISGID) != 0) {
+                    gid = stat.getGid();
+                    perm = mode | UnixPermission.S_ISGID;
+                } else {
+                    gid = group;
+                    perm = mode;
+                }
+                FsInode inode = _sqlDriver.mkdir(parent, name, owner, gid, perm);
+                _sqlDriver.createTags(inode, owner, gid, perm & 0666, tags);
+                _sqlDriver.writeAcl(inode, RsType.DIR, acl);
+                fillIdCaches(inode);
+                return inode;
+            } catch (DuplicateKeyException e) {
+                throw new FileExistsChimeraFsException(name, e);
+            }
+        });
     }
 
     @Override
     public FsInode path2inode(String path) throws ChimeraFsException {
-        return path2inode(path, _rootInode);
+        return path2inode(path, new RootInode(this, _sqlDriver.getRootInumber()));
     }
 
     @Override
     public FsInode path2inode(String path, FsInode startFrom) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
+        FsInode inode = _sqlDriver.path2inode(startFrom, path);
+        if (inode == null) {
+            throw new FileNotFoundHimeraFsException(path);
         }
-
-        FsInode inode = null;
-
-        try {
-
-            dbConnection.setAutoCommit(true);
-            inode = _sqlDriver.path2inode(dbConnection, startFrom, path);
-
-            if (inode == null) {
-                throw new FileNotFoundHimeraFsException(path);
-            }
-
-        } catch (SQLException e) {
-            _log.error("path2inode", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
+        fillIdCaches(inode);
         return inode;
     }
 
     @Override
-    public List<FsInode> path2inodes(String path) throws ChimeraFsException
-    {
-        return path2inodes(path, _rootInode);
+    public String inode2id(FsInode inode) throws ChimeraFsException {
+        try {
+            return _idCache.get(inode.ino(), () -> {
+                String id = _sqlDriver.getId(inode);
+                if (id == null) {
+                    throw new FileNotFoundHimeraFsException(String.valueOf(inode.ino()));
+                }
+                return id;
+            });
+        } catch (ExecutionException e) {
+            Throwables.propagateIfInstanceOf(e.getCause(), ChimeraFsException.class);
+            Throwables.propagateIfInstanceOf(e.getCause(), DataAccessException.class);
+            throw Throwables.propagate(e.getCause());
+        }
+    }
+
+    @Override
+    public FsInode id2inode(String id, StatCacheOption option) throws ChimeraFsException {
+        if (option == NO_STAT) {
+            try {
+                return new FsInode(this, _inoCache.get(id, () -> {
+                    Long ino = _sqlDriver.getInumber(id);
+                    if (ino == null) {
+                        throw new FileNotFoundHimeraFsException(id);
+                    }
+                    return ino;
+                }));
+            } catch (ExecutionException e) {
+                Throwables.propagateIfInstanceOf(e.getCause(), ChimeraFsException.class);
+                Throwables.propagateIfInstanceOf(e.getCause(), DataAccessException.class);
+                throw Throwables.propagate(e.getCause());
+            }
+        } else {
+            Stat stat = _sqlDriver.stat(id);
+            if (stat == null) {
+                throw new FileNotFoundHimeraFsException(id);
+            }
+            _inoCache.put(stat.getId(), stat.getIno());
+            _idCache.put(stat.getIno(), stat.getId());
+            return new FsInode(this, stat.getIno(), FsInodeType.INODE, 0, stat);
+        }
+    }
+
+    @Override
+    public List<FsInode> path2inodes(String path) throws ChimeraFsException {
+        return path2inodes(path, new RootInode(this, _sqlDriver.getRootInumber()));
     }
 
     @Override
     public List<FsInode> path2inodes(String path, FsInode startFrom)
         throws ChimeraFsException
     {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
+        List<FsInode> inodes = _sqlDriver.path2inodes(startFrom, path);
+        if (inodes.isEmpty()) {
+            throw new FileNotFoundHimeraFsException(path);
         }
-
-        List<FsInode> inodes;
-
-        try {
-            dbConnection.setAutoCommit(true);
-            inodes = _sqlDriver.path2inodes(dbConnection, startFrom, path);
-
-            if (inodes.isEmpty()) {
-                throw new FileNotFoundHimeraFsException(path);
-            }
-        } catch (SQLException e) {
-            _log.error("path2inode", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
+        fillIdCaches(inodes.get(inodes.size() - 1));
         return inodes;
     }
 
     @Override
-    public FsInode inodeOf(FsInode parent, String name) throws ChimeraFsException {
-        FsInode inode = null;
-
+    public FsInode inodeOf(FsInode parent, String name, StatCacheOption cacheOption) throws ChimeraFsException {
         // only if it's PNFS command
         if (name.startsWith(".(")) {
 
@@ -841,10 +718,11 @@ public class JdbcFs implements FileSystemProvider {
                 if (cmd.length != 2) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
-                inode = inodeOf(parent, cmd[1]);
-
-                return new FsInode_ID(this, inode.toString());
-
+                FsInode inode = _sqlDriver.inodeOf(parent, cmd[1], NO_STAT);
+                if (inode == null) {
+                    throw new FileNotFoundHimeraFsException(cmd[1]);
+                }
+                return new FsInode_ID(this, inode.ino());
             }
 
             if (name.startsWith(".(use)(")) {
@@ -855,11 +733,13 @@ public class JdbcFs implements FileSystemProvider {
                 try {
                     int level = Integer.parseInt(cmd[1]);
 
-                    FsInode useInode = this.inodeOf(parent, cmd[2]);
-
+                    FsInode inode = _sqlDriver.inodeOf(parent, cmd[2], NO_STAT);
+                    if (inode == null) {
+                        throw new FileNotFoundHimeraFsException(cmd[2]);
+                    }
                     if (level <= LEVELS_NUMBER) {
-                        this.stat(useInode, level);
-                        return new FsInode(this, useInode.toString(), level);
+                        stat(inode, level);
+                        return new FsInode(this, inode.ino(), level);
                     } else {
                         // is it error or a real file?
                     }
@@ -879,11 +759,10 @@ public class JdbcFs implements FileSystemProvider {
                 try {
                     int level = cmd.length == 2 ? 0 : Integer.parseInt(cmd[2]);
 
-                    FsInode useInode = new FsInode(this, cmd[1]);
+                    FsInode useInode = id2inode(cmd[1], STAT);
 
                     if (level <= LEVELS_NUMBER) {
-                        this.stat(useInode, level);
-                        return new FsInode(this, useInode.toString(), level);
+                        return new FsInode(this, useInode.ino(), level);
                     } else {
                         // is it error or a real file?
                     }
@@ -900,7 +779,7 @@ public class JdbcFs implements FileSystemProvider {
                 if (cmd.length != 2) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
-                FsInode nameofInode = new FsInode_NAMEOF(this, cmd[1]);
+                FsInode nameofInode = new FsInode_NAMEOF(this, id2inode(cmd[1], NO_STAT).ino());
                 if (!nameofInode.exists()) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
@@ -912,7 +791,7 @@ public class JdbcFs implements FileSystemProvider {
                 if (cmd.length != 2) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
-                FsInode constInode = new FsInode_CONST(this, parent.toString());
+                FsInode constInode = new FsInode_CONST(this, parent.ino());
                 if (!constInode.exists()) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
@@ -924,7 +803,7 @@ public class JdbcFs implements FileSystemProvider {
                 if (cmd.length != 2) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
-                FsInode parentInode = new FsInode_PARENT(this, cmd[1]);
+                FsInode parentInode = new FsInode_PARENT(this, id2inode(cmd[1], NO_STAT).ino());
                 if (!parentInode.exists()) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
@@ -936,7 +815,7 @@ public class JdbcFs implements FileSystemProvider {
                 if (cmd.length != 2) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
-                FsInode pathofInode = new FsInode_PATHOF(this, cmd[1]);
+                FsInode pathofInode = new FsInode_PATHOF(this, id2inode(cmd[1], NO_STAT).ino());
                 if (!pathofInode.exists()) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
@@ -948,7 +827,7 @@ public class JdbcFs implements FileSystemProvider {
                 if (cmd.length != 2) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
-                FsInode tagInode = new FsInode_TAG(this, parent.toString(), cmd[1]);
+                FsInode tagInode = new FsInode_TAG(this, parent.ino(), cmd[1]);
                 if (!tagInode.exists()) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
@@ -956,7 +835,7 @@ public class JdbcFs implements FileSystemProvider {
             }
 
             if (name.equals(".(tags)()")) {
-                return new FsInode_TAGS(this, parent.toString());
+                return new FsInode_TAGS(this, parent.ino());
             }
 
             if (name.startsWith(".(pset)(")) {
@@ -966,7 +845,7 @@ public class JdbcFs implements FileSystemProvider {
                 }
                 String[] args = new String[cmd.length - 2];
                 System.arraycopy(cmd, 2, args, 0, args.length);
-                FsInode psetInode = new FsInode_PSET(this, cmd[1], args);
+                FsInode psetInode = new FsInode_PSET(this, id2inode(cmd[1], NO_STAT).ino(), args);
                 if (!psetInode.exists()) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
@@ -974,7 +853,7 @@ public class JdbcFs implements FileSystemProvider {
             }
 
             if (name.equals(".(get)(cursor)")) {
-                FsInode pgetInode = new FsInode_PGET(this, parent.toString(), new String[0]);
+                FsInode pgetInode = new FsInode_PCUR(this, parent.ino());
                 if (!pgetInode.exists()) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
@@ -987,20 +866,24 @@ public class JdbcFs implements FileSystemProvider {
                     throw new FileNotFoundHimeraFsException(name);
                 }
 
-                /*
-                 * pass in the name too (args 1 to n)
-                 */
-                String[] args = new String[cmd.length - 1];
-                System.arraycopy(cmd, 1, args, 0, args.length);
-                inode = getPGET(parent, args);
-                if (!inode.exists()) {
-                    throw new FileNotFoundHimeraFsException(name);
+                FsInode inode = _sqlDriver.inodeOf(parent, cmd[1], NO_STAT);
+                if (inode == null) {
+                    throw new FileNotFoundHimeraFsException(cmd[1]);
                 }
-                return inode;
+                switch(cmd[2]) {
+                    case "locality":
+                        return new FsInode_PLOC(this, inode.ino());
+                    case "checksum":
+                    case "checksums":
+                        return new FsInode_PCRC(this, inode.ino());
+                    default:
+                        throw new ChimeraFsException
+                            ("unsupported argument for .(get) " + cmd[2]);
+                }
             }
 
             if (name.equals(".(config)")) {
-                return new FsInode(this, _wormID);
+                return getWormID();
             }
 
             if (name.startsWith(".(config)(")) {
@@ -1008,7 +891,11 @@ public class JdbcFs implements FileSystemProvider {
                 if (cmd.length != 2) {
                     throw new FileNotFoundHimeraFsException(name);
                 }
-                return this.inodeOf(new FsInode(this, _wormID), cmd[1]);
+                FsInode inode = _sqlDriver.inodeOf(getWormID(), cmd[1], NO_STAT);
+                if (inode == null) {
+                    throw new FileNotFoundHimeraFsException(cmd[1]);
+                }
+                return inode;
             }
 
             if (name.startsWith(".(fset)(")) {
@@ -1019,46 +906,27 @@ public class JdbcFs implements FileSystemProvider {
                 String[] args = new String[cmd.length - 2];
                 System.arraycopy(cmd, 2, args, 0, args.length);
 
-                FsInode fsetInode = this.inodeOf(parent, cmd[1]);
-                if (!fsetInode.exists()) {
-                    throw new FileNotFoundHimeraFsException(name);
+                FsInode fsetInode = _sqlDriver.inodeOf(parent, cmd[1], NO_STAT);
+                if (fsetInode == null) {
+                    throw new FileNotFoundHimeraFsException(cmd[1]);
                 }
-                return new FsInode_PSET(this, fsetInode.toString(), args);
+                return new FsInode_PSET(this, fsetInode.ino(), args);
             }
 
         }
 
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
+        FsInode inode = _sqlDriver.inodeOf(parent, name, cacheOption);
+        if (inode == null) {
+            throw new FileNotFoundHimeraFsException(name);
         }
-
-        try {
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            inode = _sqlDriver.inodeOf(dbConnection, parent, name);
-
-            if (inode == null) {
-                throw new FileNotFoundHimeraFsException(name);
-            }
-
-        } catch (SQLException e) {
-            _log.error("inodeOf", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
+        fillIdCaches(inode);
+        inode.setParent(parent);
         return inode;
     }
 
     @Override
     public String inode2path(FsInode inode) throws ChimeraFsException {
-        return inode2path(inode, _rootInode, true);
+        return inode2path(inode, new RootInode(this, _sqlDriver.getRootInumber()));
     }
 
     /**
@@ -1069,217 +937,70 @@ public class JdbcFs implements FileSystemProvider {
      * @throws ChimeraFsException
      */
     @Override
-    public String inode2path(FsInode inode, FsInode startFrom, boolean inclusive) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        String path = null;
-
-        try {
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            path = _sqlDriver.inode2path(dbConnection, inode, startFrom, inclusive);
-
-        } catch (SQLException e) {
-            _log.error("inode2path", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return path;
-
+    public String inode2path(FsInode inode, FsInode startFrom) throws ChimeraFsException {
+        return _sqlDriver.inode2path(inode, startFrom);
     }
 
     @Override
     public boolean removeFileMetadata(String path, int level) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        boolean rc = false;
-
-        try {
-
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            rc = _sqlDriver.removeInodeLevel(dbConnection, this.path2inode(path), level);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            _log.error("removeFileMetadata", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return rc;
+        return inTransaction(status -> _sqlDriver.removeInodeLevel(path2inode(path), level));
     }
 
     @Override
     public FsInode getParentOf(FsInode inode) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        FsInode parent = null;
-
-        try {
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            if (inode.isDirectory()) {
-                parent = _sqlDriver.getParentOfDirectory(dbConnection, inode);
-            } else {
-                parent = _sqlDriver.getParentOf(dbConnection, inode);
-            }
-
-        } catch (SQLException e) {
-            _log.error("getPathOf", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return parent;
-    }
-
-    @Override
-    public void setFileName(FsInode dir, String oldName, String newName) throws ChimeraFsException {
-	move(dir, oldName, dir, newName);
+        return _sqlDriver.getParentOf(inode);
     }
 
     @Override
     public void setInodeAttributes(FsInode inode, int level, Stat stat) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
+        inTransaction(status -> {
             switch (inode.type()) {
-                case INODE:
-		case PSET:
-                    boolean applied = _sqlDriver.setInodeAttributes(dbConnection, inode, level, stat);
-                    if (!applied) {
-			/**
-			 * there are two cases why update can fail:
-			 *   1. inode does not exists
-			 *   2. we try to set a size on a non file object
-			 */
-			Stat s = _sqlDriver.stat(dbConnection, inode);
-			if (s == null) {
-			    throw new FileNotFoundHimeraFsException();
-			}
-			if ((s.getMode() & UnixPermission.F_TYPE) == UnixPermission.S_IFDIR) {
-			    throw new IsDirChimeraException(inode);
-			}
-			throw new InvalidArgumentChimeraException();
+            case INODE:
+            case PSET:
+                boolean applied = _sqlDriver.setInodeAttributes(inode, level, stat);
+                if (!applied) {
+                    /**
+                     * there are two cases why update can fail: 1. inode
+                     * does not exists 2. we try to set a size on a non file
+                     * object
+                     */
+                    Stat s = _sqlDriver.stat(inode);
+                    if (s == null) {
+                        throw new FileNotFoundHimeraFsException();
                     }
-                    break;
-                case TAG:
-		    if (stat.isDefined(Stat.StatAttributes.MODE)) {
-			_sqlDriver.setTagMode(dbConnection, (FsInode_TAG) inode, stat.getMode());
-		    }
-		    if (stat.isDefined(Stat.StatAttributes.UID)) {
-			_sqlDriver.setTagOwner(dbConnection, (FsInode_TAG) inode, stat.getUid());
-		    }
-		    if (stat.isDefined(Stat.StatAttributes.GID)) {
-			_sqlDriver.setTagOwnerGroup(dbConnection, (FsInode_TAG) inode, stat.getGid());
-		    }
-                    break;
+                    if ((s.getMode() & UnixPermission.F_TYPE) == UnixPermission.S_IFDIR) {
+                        throw new IsDirChimeraException(inode);
+                    }
+                    throw new InvalidArgumentChimeraException();
+                }
+                break;
+            case TAG:
+                if (stat.isDefined(Stat.StatAttributes.MODE)) {
+                    _sqlDriver.setTagMode((FsInode_TAG) inode, stat.getMode());
+                }
+                if (stat.isDefined(Stat.StatAttributes.UID)) {
+                    _sqlDriver.setTagOwner((FsInode_TAG) inode, stat.getUid());
+                }
+                if (stat.isDefined(Stat.StatAttributes.GID)) {
+                    _sqlDriver.setTagOwnerGroup((FsInode_TAG) inode, stat.getGid());
+                }
+                break;
             }
-            dbConnection.commit();
-
-        } catch (SQLException e) {
-            _log.error("setInodeAttributes", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+            return null;
+        });
     }
 
     @Override
     public boolean isIoEnabled(FsInode inode) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        boolean ioEnabled = false;
-
-        try {
-
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            ioEnabled = _sqlDriver.isIoEnabled(dbConnection, inode);
-
-        } catch (SQLException e) {
-            _log.error("isIoEnabled", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return ioEnabled;
-
+        return _sqlDriver.isIoEnabled(inode);
     }
 
     @Override
     public void setInodeIo(FsInode inode, boolean enable) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setInodeIo(dbConnection, inode, enable);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            _log.error("setInodeIo", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            _sqlDriver.setInodeIo(inode, enable);
+            return null;
+        });
     }
 
     public int write(FsInode inode, long beginIndex, byte[] data, int offset, int len) throws ChimeraFsException {
@@ -1288,40 +1009,17 @@ public class JdbcFs implements FileSystemProvider {
 
     @Override
     public int write(FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) throws ChimeraFsException {
-
-
-        if (level == 0 && !inode.isIoEnabled()) {
-            _log.debug(inode + ": IO (write) not allowd");
-            return -1;
-        }
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.write(dbConnection, inode, level, beginIndex, data, offset, len);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            tryToRollback(dbConnection);
-
-            if (_sqlDriver.isForeignKeyError(e)) {
-                throw new FileNotFoundHimeraFsException();
+        return inTransaction(status -> {
+            try {
+                if (level == 0 && !inode.isIoEnabled()) {
+                    _log.debug("{}: IO (write) not allowed", inode);
+                    return -1;
+                }
+                return _sqlDriver.write(inode, level, beginIndex, data, offset, len);
+            } catch (ForeignKeyViolationException e) {
+                throw new FileNotFoundHimeraFsException(e);
             }
-            _log.error("write", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return len;
+        });
     }
 
     public int read(FsInode inode, long beginIndex, byte[] data, int offset, int len) throws ChimeraFsException {
@@ -1330,152 +1028,60 @@ public class JdbcFs implements FileSystemProvider {
 
     @Override
     public int read(FsInode inode, int level, long beginIndex, byte[] data, int offset, int len) throws ChimeraFsException {
-
-        int count = -1;
-
         if (level == 0 && !inode.isIoEnabled()) {
-            _log.debug(inode + ": IO(read) not allowd");
+            _log.debug("{}: IO(read) not allowed", inode);
             return -1;
         }
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            count = _sqlDriver.read(dbConnection, inode, level, beginIndex, data, offset, len);
-
-        } catch (SQLException se) {
-            _log.debug("read:", se);
-            throw new IOHimeraFsException(se.getMessage());
-        } catch (IOException e) {
-            _log.debug("read IO:", e);
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return count;
+        return _sqlDriver.read(inode, level, beginIndex, data, offset, len);
     }
 
     @Override
     public byte[] readLink(String path) throws ChimeraFsException {
-        return this.readLink(this.path2inode(path));
+        return readLink(path2inode(path));
     }
 
     @Override
     public byte[] readLink(FsInode inode) throws ChimeraFsException {
-
-        byte[] link;
-        byte[] b = new byte[(int) inode.statCache().getSize()];
-
-        int n = this.read(inode, 0, b, 0, b.length);
-        if (n >= 0) {
-            link = b;
-        } else {
-            link = new byte[0];
-        }
-
-        return link;
+        int len = (int) inode.statCache().getSize();
+        byte[] b = new byte[len];
+        int n = read(inode, 0, b, 0, b.length);
+        return (n >= 0) ? b : new byte[0];
     }
 
     @Override
-    public boolean move(String source, String dest) {
-        boolean rc;
-
-        try {
-
-            File what = new File(source);
-            File where = new File(dest);
-
-            rc = this.move(this.path2inode(what.getParent()), what.getName(), this.path2inode(where.getParent()), where.getName());
-
-        } catch (Exception e) {
-            rc = false;
-        }
-
-        return rc;
-    }
-
-    @Override
-    public boolean move(FsInode srcDir, String source, FsInode destDir, String dest) throws ChimeraFsException {
-
+    public boolean rename(FsInode inode, FsInode srcDir, String source, FsInode destDir, String dest) throws ChimeraFsException {
         checkNameLength(dest);
 
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        boolean rc = false;
-        try {
-
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            Stat destStat = _sqlDriver.stat(dbConnection, destDir);
-            if ((destStat.getMode() & UnixPermission.F_TYPE) != UnixPermission.S_IFDIR) {
-                throw new NotDirChimeraException();
+        return inTransaction(status -> {
+            if (!destDir.isDirectory()) {
+                throw new NotDirChimeraException(destDir);
             }
 
-            FsInode destInode = _sqlDriver.inodeOf(dbConnection, destDir, dest);
-            FsInode srcInode = _sqlDriver.inodeOf(dbConnection, srcDir, source);
-            if (srcInode == null) {
-                throw new FileNotFoundHimeraFsException();
-            }
+            FsInode destInode = _sqlDriver.inodeOf(destDir, dest, STAT);
 
             if (destInode != null) {
-                Stat statDest = _sqlDriver.stat(dbConnection, destInode);
-                Stat statSrc = _sqlDriver.stat(dbConnection, srcInode);
-                if (destInode.equals(srcInode)) {
-                   // according to POSIX, we are done
-                    dbConnection.commit();
+                if (destInode.equals(inode)) {
+                    // according to POSIX, we are done
                     return false;
                 }
 
-               /*
-                * renaming only into existing same type is allowed
+               /* Renaming into existing is only allowed for the same type of entry.
                 */
-                if ((statSrc.getMode() & UnixPermission.S_TYPE) != (statDest.getMode() & UnixPermission.S_TYPE)) {
-                    throw new FileExistsChimeraFsException();
+                if (inode.isDirectory() != destInode.isDirectory()) {
+                    throw new FileExistsChimeraFsException(dest);
                 }
 
-                _sqlDriver.remove(dbConnection, destDir, dest);
+                if (!_sqlDriver.remove(destDir, dest, destInode)) {
+                    // Concurrent modification - retry
+                    return rename(inode, srcDir, source, destDir, dest);
+                }
             }
 
-            if (!srcDir.equals(destDir)) {
-                _sqlDriver.move(dbConnection, srcDir, source, destDir, dest);
-                _sqlDriver.incNlink(dbConnection, destDir);
-                _sqlDriver.decNlink(dbConnection, srcDir);
-            } else {
-                // same directory
-		long now = System.currentTimeMillis();
-                _sqlDriver.setFileName(dbConnection, srcDir, source, dest);
-		Stat stat = new Stat();
-		stat.setMTime(now);
-		_sqlDriver.setInodeAttributes(dbConnection, destDir, 0, stat);
+            if (!_sqlDriver.rename(inode, srcDir, source, destDir, dest)) {
+                throw new FileNotFoundHimeraFsException(source);
             }
-
-            dbConnection.commit();
-            rc = true;
-        } catch (SQLException e) {
-            _log.error("move:", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return rc;
+            return true;
+        });
     }
 
     /////////////////////////////////////////////////////////////////////
@@ -1485,91 +1091,32 @@ public class JdbcFs implements FileSystemProvider {
     ////////////////////////////////////////////////////////////////////
     @Override
     public List<StorageLocatable> getInodeLocations(FsInode inode, int type) throws ChimeraFsException {
+        return _sqlDriver.getInodeLocations(inode, type);
+    }
 
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        List<StorageLocatable> locations = null;
-
-        try {
-
-            // read/write only
-            dbConnection.setAutoCommit(true);
-
-            locations = _sqlDriver.getInodeLocations(dbConnection, inode, type);
-
-        } catch (SQLException se) {
-            _log.error("getInodeLocations", se);
-            throw new IOHimeraFsException(se.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return locations;
+    @Override
+    public List<StorageLocatable> getInodeLocations(FsInode inode) throws ChimeraFsException {
+        return _sqlDriver.getInodeLocations(inode);
     }
 
     @Override
     public void addInodeLocation(FsInode inode, int type, String location) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.addInodeLocation(dbConnection, inode, type, location);
-            dbConnection.commit();
-        } catch (SQLException se) {
-            tryToRollback(dbConnection);
-
-            if (_sqlDriver.isForeignKeyError(se)) {
-                throw new FileNotFoundHimeraFsException();
+        inTransaction(status -> {
+            try {
+                _sqlDriver.addInodeLocation(inode, type, location);
+            } catch (ForeignKeyViolationException e) {
+                throw new FileNotFoundHimeraFsException(e);
             }
-
-            if (!_sqlDriver.isDuplicatedKeyError(se)) {
-                _log.error("addInodeLocation:", se);
-                throw new IOHimeraFsException(se.getMessage());
-            }
-        } finally {
-            tryToClose(dbConnection);
-        }
+            return null;
+        });
     }
 
     @Override
     public void clearInodeLocation(FsInode inode, int type, String location) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.clearInodeLocation(dbConnection, inode, type, location);
-            dbConnection.commit();
-        } catch (SQLException se) {
-            _log.error("clearInodeLocation", se);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(se.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            _sqlDriver.clearInodeLocation(inode, type, location);
+            return null;
+        });
     }
 
     /////////////////////////////////////////////////////////////////////
@@ -1579,29 +1126,12 @@ public class JdbcFs implements FileSystemProvider {
     ////////////////////////////////////////////////////////////////////
     @Override
     public String[] tags(FsInode inode) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
+        return _sqlDriver.tags(inode);
+    }
 
-        String[] list = null;
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(true);
-
-            list = _sqlDriver.tags(dbConnection, inode);
-
-        } catch (SQLException se) {
-            _log.error("tags", se);
-            throw new IOHimeraFsException(se.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return list;
+    @Override
+    public Map<String, byte[]> getAllTags(FsInode inode) throws ChimeraFsException {
+        return _sqlDriver.getAllTags(inode);
     }
 
     @Override
@@ -1611,244 +1141,70 @@ public class JdbcFs implements FileSystemProvider {
 
     @Override
     public void createTag(FsInode inode, String name, int uid, int gid, int mode) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.createTag(dbConnection, inode, name, uid, gid, mode);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            tryToRollback(dbConnection);
-            if (_sqlDriver.isDuplicatedKeyError(e)) {
+        inTransaction(status -> {
+            try {
+                _sqlDriver.createTag(inode, name, uid, gid, mode);
+                return null;
+            } catch (DuplicateKeyException e) {
                 throw new FileExistsChimeraFsException();
             }
-            _log.error("createTag", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        });
     }
 
     @Override
     public int setTag(FsInode inode, String tagName, byte[] data, int offset, int len) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setTag(dbConnection, inode, tagName, data, offset, len);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            _log.error("setTag", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } catch (ChimeraFsException e) {
-            _log.error("setTag", e);
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return len;
-
+        return inTransaction(status -> _sqlDriver.setTag(inode, tagName, data, offset, len));
     }
 
     @Override
     public void removeTag(FsInode dir, String tagName) throws ChimeraFsException
     {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.removeTag(dbConnection, dir, tagName);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            _log.error("removeTag", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            _sqlDriver.removeTag(dir, tagName);
+            return null;
+        });
     }
 
     @Override
     public void removeTag(FsInode dir) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.removeTag(dbConnection, dir);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            _log.error("removeTag", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            _sqlDriver.removeTag(dir);
+            return null;
+        });
     }
 
     @Override
     public int getTag(FsInode inode, String tagName, byte[] data, int offset, int len) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        int count = -1;
-
-        try {
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            count = _sqlDriver.getTag(dbConnection, inode, tagName, data, offset, len);
-
-        } catch (SQLException e) {
-
-            _log.error("getTag", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } catch (IOException e) {
-            _log.error("getTag io", e);
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return count;
+        return _sqlDriver.getTag(inode, tagName, data, offset, len);
     }
 
     @Override
     public Stat statTag(FsInode dir, String name) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-
-        Stat ret = null;
-
-        try {
-
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            ret = _sqlDriver.statTag(dbConnection, dir, name);
-
-        } catch (SQLException e) {
-            _log.error("statTag", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return ret;
+        return _sqlDriver.statTag(dir, name);
     }
 
     @Override
     public void setTagOwner(FsInode_TAG tagInode, String name, int owner) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setTagOwner(dbConnection, tagInode, owner);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            _log.error("setTagOwner", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            _sqlDriver.setTagOwner(tagInode, owner);
+            return null;
+        });
     }
 
     @Override
     public void setTagOwnerGroup(FsInode_TAG tagInode, String name, int owner) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setTagOwnerGroup(dbConnection, tagInode, owner);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            _log.error("setTagOwnerGroup", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            _sqlDriver.setTagOwnerGroup(tagInode, owner);
+            return null;
+        });
     }
 
     @Override
     public void setTagMode(FsInode_TAG tagInode, String name, int mode) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setTagMode(dbConnection, tagInode, mode);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            _log.error("setTagMode", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            _sqlDriver.setTagMode(tagInode, mode);
+            return null;
+        });
     }
 
     ///////////////////////////////////////////////////////////////
@@ -1867,190 +1223,19 @@ public class JdbcFs implements FileSystemProvider {
      */
     @Override
     public void setStorageInfo(FsInode inode, InodeStorageInformation storageInfo) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setStorageInfo(dbConnection, inode, storageInfo);
-            dbConnection.commit();
-        } catch (SQLException se) {
-            tryToRollback(dbConnection);
-
-            if (_sqlDriver.isForeignKeyError(se)) {
-                throw new FileNotFoundHimeraFsException();
+        inTransaction(status -> {
+            try {
+                _sqlDriver.setStorageInfo(inode, storageInfo);
+            } catch (ForeignKeyViolationException e) {
+                throw new FileNotFoundHimeraFsException(e);
             }
-
-            if (!_sqlDriver.isDuplicatedKeyError(se)) {
-                _log.error("setStorageInfo:", se);
-                throw new IOHimeraFsException(se.getMessage());
-            }
-        } finally {
-            tryToClose(dbConnection);
-        }
-    }
-
-    /**
-     *
-     * @param inode
-     * @param accessLatency
-     * @throws ChimeraFsException
-     */
-    @Override
-    public void setAccessLatency(FsInode inode, AccessLatency accessLatency) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setAccessLatency(dbConnection, inode, accessLatency);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            tryToRollback(dbConnection);
-
-            if (_sqlDriver.isForeignKeyError(e)) {
-                throw new FileNotFoundHimeraFsException();
-            }
-            _log.error("setAccessLatency:", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-    }
-
-    @Override
-    public void setRetentionPolicy(FsInode inode, RetentionPolicy retentionPolicy) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            // read/write only
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setRetentionPolicy(dbConnection, inode, retentionPolicy);
-            dbConnection.commit();
-        } catch (SQLException e) {
-            tryToRollback(dbConnection);
-
-            if (_sqlDriver.isForeignKeyError(e)) {
-                throw new FileNotFoundHimeraFsException();
-            }
-            _log.error("setRetentionPolicy:", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+            return null;
+        });
     }
 
     @Override
     public InodeStorageInformation getStorageInfo(FsInode inode) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        InodeStorageInformation storageInfo = null;
-
-        try {
-
-            dbConnection.setAutoCommit(true);
-
-            storageInfo = _sqlDriver.getStorageInfo(dbConnection, inode);
-
-        } catch (SQLException e) {
-            _log.error("setSorageInfo", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return storageInfo;
-
-    }
-
-    @Override
-    public AccessLatency getAccessLatency(FsInode inode) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        AccessLatency accessLatency = null;
-
-        try {
-
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            accessLatency = _sqlDriver.getAccessLatency(dbConnection, inode);
-
-        } catch (SQLException e) {
-            _log.error("setSorageInfo", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return accessLatency;
-
-    }
-
-    @Override
-    public RetentionPolicy getRetentionPolicy(FsInode inode) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        RetentionPolicy retentionPolicy = null;
-
-        try {
-
-            // read only
-            dbConnection.setAutoCommit(true);
-
-            retentionPolicy = _sqlDriver.getRetentionPolicy(dbConnection, inode);
-
-        } catch (SQLException e) {
-            _log.error("setSorageInfo", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return retentionPolicy;
-
+        return _sqlDriver.getStorageInfo(inode);
     }
 
     /*
@@ -2058,87 +1243,27 @@ public class JdbcFs implements FileSystemProvider {
      */
     @Override
     public void setInodeChecksum(FsInode inode, int type, String checksum) throws ChimeraFsException {
-
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-
-        try {
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setInodeChecksum(dbConnection, inode, type, checksum);
-
-            dbConnection.commit();
-
-        } catch (SQLException e) {
-            tryToRollback(dbConnection);
-
-            if (_sqlDriver.isForeignKeyError(e)) {
-                throw new FileNotFoundHimeraFsException();
+        inTransaction(status -> {
+            try {
+                _sqlDriver.setInodeChecksum(inode, type, checksum);
+            } catch (ForeignKeyViolationException e) {
+                throw new FileNotFoundHimeraFsException(e);
             }
-
-            if (!_sqlDriver.isDuplicatedKeyError(e)) {
-                _log.error("setInodeChecksum:", e);
-                throw new IOHimeraFsException(e.getMessage());
-            }
-        } finally {
-            tryToClose(dbConnection);
-        }
-
+            return null;
+        });
     }
 
     @Override
     public void removeInodeChecksum(FsInode inode, int type) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            dbConnection.setAutoCommit(true);
-
-            _sqlDriver.removeInodeChecksum(dbConnection, inode, type);
-
-        } catch (SQLException e) {
-            _log.error("removeInodeChecksum", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            _sqlDriver.removeInodeChecksum(inode, type);
+            return null;
+        });
     }
 
     @Override
-    public String getInodeChecksum(FsInode inode, int type) throws ChimeraFsException {
-        String checkSum = null;
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            dbConnection.setAutoCommit(true);
-
-            checkSum = _sqlDriver.getInodeChecksum(dbConnection, inode, type);
-
-        } catch (SQLException e) {
-            _log.error("getInodeChecksum", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-
-        return checkSum;
+    public Set<Checksum> getInodeChecksums(FsInode inode) throws ChimeraFsException {
+        return new HashSet<>(_sqlDriver.getInodeChecksums(inode));
     }
 
     /**
@@ -2149,58 +1274,28 @@ public class JdbcFs implements FileSystemProvider {
      */
     @Override
     public List<ACE> getACL(FsInode inode) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        List<ACE> acl;
-        try {
-            dbConnection.setAutoCommit(true);
-
-            acl = _sqlDriver.getACL(dbConnection, inode);
-
-        } catch (SQLException e) {
-            _log.error("Failed go getACL:", e);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-        return acl;
+        return _sqlDriver.readAcl(inode);
     }
 
     /**
      * Set inode's Access Control List. The existing ACL will be replaced.
-     * @param dbConnection
      * @param inode
      * @param acl
      */
     @Override
     public void setACL(FsInode inode, List<ACE> acl) throws ChimeraFsException {
-        Connection dbConnection;
-        try {
-            // get from pool
-            dbConnection = _dbConnectionsPool.getConnection();
-        } catch (SQLException e) {
-            throw new BackEndErrorHimeraFsException(e.getMessage());
-        }
-
-        try {
-            dbConnection.setAutoCommit(false);
-
-            _sqlDriver.setACL(dbConnection, inode, acl);
-            dbConnection.commit();
-
-        } catch (SQLException e) {
-            _log.error("Failed to set ACL: ", e);
-            tryToRollback(dbConnection);
-            throw new IOHimeraFsException(e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
+        inTransaction(status -> {
+            boolean modified = _sqlDriver.deleteAcl(inode);
+            if (!acl.isEmpty()) {
+                _sqlDriver.writeAcl(inode, inode.isDirectory() ? RsType.DIR : RsType.FILE, acl);
+                modified = true;
+            }
+            if (modified) {
+                // empty stat will update ctime
+                _sqlDriver.setInodeAttributes(inode, 0, new Stat());
+            }
+            return null;
+        });
     }
 
     private static void checkNameLength(String name) throws InvalidNameChimeraException {
@@ -2210,24 +1305,14 @@ public class JdbcFs implements FileSystemProvider {
     }
 
     public FsStat getFsStat0() throws ChimeraFsException {
-        FsStat fsStat = null;
-        Connection dbConnection = null;
-        try {
-            dbConnection = _dbConnectionsPool.getConnection();
-            fsStat = _sqlDriver.getFsStat(dbConnection);
-        } catch (SQLException e) {
-            _log.error("Failed to obtain FsStat: {}", e.getMessage());
-        } finally {
-            tryToClose(dbConnection);
-        }
-        return fsStat;
+        return _sqlDriver.getFsStat();
     }
 
     @Override
     public FsStat getFsStat() throws ChimeraFsException {
         try {
             return _fsStatCache.get(DUMMY_KEY);
-        } catch (ExecutionException e) {
+        } catch(ExecutionException e) {
             Throwable t = e.getCause();
             Throwables.propagateIfPossible(t, ChimeraFsException.class);
             throw new ChimeraFsException(t.getMessage(), t);
@@ -2258,10 +1343,13 @@ public class JdbcFs implements FileSystemProvider {
 
         StringBuilder sb = new StringBuilder();
 
-        sb.append("DB        : ").append(_dbConnectionsPool.toString()).append("\n");
+        sb.append("DB        : ").append(_dbConnectionsPool).append("\n");
         sb.append("DB Engine : ").append(databaseProductName).append(" ").append(databaseProductVersion).append("\n");
-        sb.append("rootID    : ").append(_rootInode.toString()).append("\n");
-        sb.append("wormID    : ").append(_wormID).append("\n");
+        try {
+            sb.append("rootID    : ").append(inode2id(new FsInode(this, _sqlDriver.getRootInumber()))).append("\n");
+        } catch (ChimeraFsException e) {
+            sb.append("rootID    : ").append(e.getMessage()).append("\n");
+        }
         sb.append("FsId      : ").append(_fsId).append("\n");
         return sb.toString();
     }
@@ -2273,57 +1361,86 @@ public class JdbcFs implements FileSystemProvider {
      */
     @Override
     public void close() throws IOException {
-    }
-
-    private final static byte[] FH_V0_BIN = new byte[] {0x30, 0x30, 0x30, 0x30};
-    private final static byte[] FH_V0_REG = new byte[]{0x30, 0x3a};
-    private final static byte[] FH_V0_PFS = new byte[]{0x32, 0x35, 0x35, 0x3a};
-
-    private static boolean arrayStartsWith(byte[] a1, byte[] a2) {
-        if (a1.length < a2.length) {
-            return false;
-        }
-        for (int i = 0; i < a2.length; i++) {
-            if (a1[i] != a2[i]) {
-                return false;
-            }
-        }
-        return true;
+	// enforced by the interface
     }
 
     @Override
     public FsInode inodeFromBytes(byte[] handle) throws ChimeraFsException {
+        FsInode inode;
 
-        if (arrayStartsWith(handle, FH_V0_REG) || arrayStartsWith(handle, FH_V0_PFS)) {
-            return inodeFromBytesOld(handle);
-        } else if (arrayStartsWith(handle, FH_V0_BIN)) {
-            return inodeFromBytesNew(InodeId.hexStringToByteArray(new String(handle)));
-        } else {
-            return inodeFromBytesNew(handle);
+        if (handle.length < MIN_HANDLE_LEN) {
+            throw new FileNotFoundHimeraFsException("File handle too short");
         }
-    }
 
-    private final static char[] HEX = new char[]{
-        '0', '1', '2', '3', '4', '5', '6', '7',
-        '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
-    };
-
-    /**
-     * Returns a hexadecimal representation of given byte array.
-     *
-     * @param bytes whose string representation to return
-     * @return a string representation of <tt>bytes</tt>
-     */
-    public static String toHexString(byte[] bytes) {
-
-        char[] chars = new char[bytes.length * 2];
-        int p = 0;
-        for (byte b : bytes) {
-            int i = b & 0xff;
-            chars[p++] = HEX[i / 16];
-            chars[p++] = HEX[i % 16];
+        ByteBuffer b = ByteBuffer.wrap(handle);
+        int fsid = b.get();
+        int type = b.get();
+        int len = b.get(); // eat the file id size.
+        long ino = b.getLong();
+        int opaqueLen = b.get();
+        if (opaqueLen > b.remaining()) {
+            throw new FileNotFoundHimeraFsException("Bad Opaque len");
         }
-        return new String(chars);
+
+        byte[] opaque = new byte[opaqueLen];
+        b.get(opaque);
+
+        FsInodeType inodeType = FsInodeType.valueOf(type);
+
+        switch (inodeType) {
+            case INODE:
+                int level = Integer.parseInt( new String(opaque));
+                inode = new FsInode(this, ino, level);
+                break;
+
+            case ID:
+                inode = new FsInode_ID(this, ino);
+                break;
+
+            case TAGS:
+                inode = new FsInode_TAGS(this, ino);
+                break;
+
+            case TAG:
+                String tag = new String(opaque);
+                inode = new FsInode_TAG(this, ino, tag);
+                break;
+
+            case NAMEOF:
+                inode = new FsInode_NAMEOF(this, ino);
+                break;
+            case PARENT:
+                inode = new FsInode_PARENT(this, ino);
+                break;
+
+            case PATHOF:
+                inode = new FsInode_PATHOF(this, ino);
+                break;
+
+            case CONST:
+                inode = new FsInode_CONST(this, ino);
+                break;
+
+            case PSET:
+                inode = new FsInode_PSET(this, ino, getArgs(opaque));
+                break;
+
+            case PCUR:
+                inode = new FsInode_PCUR(this, ino);
+                break;
+
+            case PLOC:
+                inode = new FsInode_PLOC(this, ino);
+                break;
+
+            case PCRC:
+                inode = new FsInode_PCRC(this, ino);
+                break;
+
+            default:
+                throw new FileNotFoundHimeraFsException("Unsupported file handle type: " + inodeType);
+        }
+        return inode;
     }
 
     private String[] getArgs(byte[] bytes) {
@@ -2338,197 +1455,68 @@ public class JdbcFs implements FileSystemProvider {
         return args;
     }
 
-    FsInode inodeFromBytesNew(byte[] handle) throws ChimeraFsException {
-
-        FsInode inode;
-
-        if (handle.length < MIN_HANDLE_LEN) {
-            throw new FileNotFoundHimeraFsException("File handle too short");
-        }
-
-        ByteBuffer b = ByteBuffer.wrap(handle);
-        int fsid = b.get();
-        int type = b.get();
-        int idLen = b.get();
-        byte[] id = new byte[idLen];
-        b.get(id);
-        int opaqueLen = b.get();
-        if (opaqueLen > b.remaining()) {
-            throw new FileNotFoundHimeraFsException("Bad Opaque len");
-        }
-
-        byte[] opaque = new byte[opaqueLen];
-        b.get(opaque);
-
-        FsInodeType inodeType = FsInodeType.valueOf(type);
-        String inodeId = toHexString(id);
-
-        switch (inodeType) {
-            case INODE:
-                int level = Integer.parseInt( new String(opaque));
-                inode = new FsInode(this, inodeId, level);
-                break;
-
-            case ID:
-                inode = new FsInode_ID(this, inodeId);
-                break;
-
-            case TAGS:
-                inode = new FsInode_TAGS(this, inodeId);
-                break;
-
-            case TAG:
-                String tag = new String(opaque);
-                inode = new FsInode_TAG(this, inodeId, tag);
-                break;
-
-            case NAMEOF:
-                inode = new FsInode_NAMEOF(this, inodeId);
-                break;
-            case PARENT:
-                inode = new FsInode_PARENT(this, inodeId);
-                break;
-
-            case PATHOF:
-                inode = new FsInode_PATHOF(this, inodeId);
-                break;
-
-            case CONST:
-                inode = new FsInode_CONST(this, inodeId);
-                break;
-
-            case PSET:
-                inode = new FsInode_PSET(this, inodeId, getArgs(opaque));
-                break;
-
-            case PGET:
-                inode = getPGET(inodeId, getArgs(opaque));
-                break;
-            default:
-                throw new FileNotFoundHimeraFsException("Unsupported file handle type: " + inodeType);
-        }
-        return inode;
-    }
-
-    FsInode inodeFromBytesOld(byte[] handle) throws ChimeraFsException {
-        FsInode inode = null;
-
-        String strHandle = new String(handle);
-
-        StringTokenizer st = new StringTokenizer(strHandle, "[:]");
-
-        if (st.countTokens() < 3) {
-            throw new IllegalArgumentException("Invalid HimeraNFS handler.("
-                    + strHandle + ")");
-        }
-
-        /*
-         * reserved for future use
-         */
-        int fsId = Integer.parseInt(st.nextToken());
-
-        String type = st.nextToken();
-
-        try {
-            // IllegalArgumentException will be thrown is it's wrong type
-
-            FsInodeType inodeType = FsInodeType.valueOf(type);
-            String id;
-            int argc;
-            String[] args;
-
-            switch (inodeType) {
-                case INODE:
-                    id = st.nextToken();
-                    int level = 0;
-                    if (st.countTokens() > 0) {
-                        level = Integer.parseInt(st.nextToken());
-                    }
-                    inode = new FsInode(this, id, level);
-                    break;
-
-                case ID:
-                    id = st.nextToken();
-                    inode = new FsInode_ID(this, id);
-                    break;
-
-                case TAGS:
-                    id = st.nextToken();
-                    inode = new FsInode_TAGS(this, id);
-                    break;
-
-                case TAG:
-                    id = st.nextToken();
-                    String tag = st.nextToken();
-                    inode = new FsInode_TAG(this, id, tag);
-                    break;
-
-                case NAMEOF:
-                    id = st.nextToken();
-                    inode = new FsInode_NAMEOF(this, id);
-                    break;
-                case PARENT:
-                    id = st.nextToken();
-                    inode = new FsInode_PARENT(this, id);
-                    break;
-
-                case PATHOF:
-                    id = st.nextToken();
-                    inode = new FsInode_PATHOF(this, id);
-                    break;
-
-                case CONST:
-                    String cnst = st.nextToken();
-                    inode = new FsInode_CONST(this, cnst);
-                    break;
-
-                case PSET:
-                    id = st.nextToken();
-                    argc = st.countTokens();
-                    args = new String[argc];
-                    for (int i = 0; i < argc; i++) {
-                        args[i] = st.nextToken();
-                    }
-                    inode = new FsInode_PSET(this, id, args);
-                    break;
-
-                case PGET:
-                    id = st.nextToken();
-                    argc = st.countTokens();
-                    args = new String[argc];
-                    for (int i = 0; i < argc; i++) {
-                        args[i] = st.nextToken();
-                    }
-                    inode = getPGET(id, args);
-                    break;
-
-            }
-        } catch (IllegalArgumentException iae) {
-            _log.info("Failed to generate an inode from file handle : {} : {}", strHandle, iae);
-            inode = null;
-        }
-
-        return inode;
-    }
-
     @Override
     public byte[] inodeToBytes(FsInode inode) throws ChimeraFsException {
         return inode.getIdentifier();
     }
 
-    /**
-     * So that subclasses can do something different (like caching).
-     */
-    protected FsInode_PGET getPGET(String id, String[] args)
-                    throws ChimeraFsException {
-        return new FsInode_PGET(this, id, args);
+    @Override
+    public String getFileLocality(FsInode_PLOC node) throws ChimeraFsException {
+        throw new ChimeraFsException(NOT_IMPL);
     }
 
     /**
-     * So that subclasses can do something different (like caching).
+     * To maintain the abstraction level, we relegate the actual
+     * callout to the subclass.
      */
-    protected FsInode_PGET getPGET(FsInode parent, String[] args)
-                    throws ChimeraFsException {
-        return new FsInode_PGET(this, parent.toString(), args);
+    @Override
+    public void pin(FsInode pnfsid, long lifetime) throws ChimeraFsException {
+       throw new ChimeraFsException(NOT_IMPL);
+    }
+
+   /**
+    * To maintain the abstraction level, we relegate the actual
+    * callout to the subclass.
+    */
+    @Override
+    public void unpin(FsInode pnfsid) throws ChimeraFsException {
+       throw new ChimeraFsException(NOT_IMPL);
+    }
+
+    private interface FallibleTransactionCallback<T>
+    {
+        T doInTransaction(TransactionStatus status) throws ChimeraFsException;
+    }
+
+    private static class RootInode extends FsInode
+    {
+        public RootInode(FileSystemProvider fs, long ino)
+        {
+            super(fs, ino);
+        }
+
+        @Override
+        public boolean exists() throws ChimeraFsException
+        {
+            return true;
+        }
+
+        @Override
+        public boolean isDirectory()
+        {
+            return true;
+        }
+
+        @Override
+        public boolean isLink()
+        {
+            return false;
+        }
+
+        @Override
+        public FsInode getParent()
+        {
+            return null;
+        }
     }
 }
