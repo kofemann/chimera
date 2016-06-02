@@ -43,7 +43,7 @@ public abstract class ChimeraTestCaseHelper {
         }
 
         PlatformTransactionManager txManager =  new DataSourceTransactionManager(_dataSource);
-        _fs = new JdbcFs(_dataSource, txManager, dbProperties.getProperty("chimera.db.dialect"));
+        _fs = new JdbcFs(_dataSource, txManager);
         _rootInode = _fs.path2inode("/");
     }
 

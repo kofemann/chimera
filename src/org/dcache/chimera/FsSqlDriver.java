@@ -16,7 +16,6 @@
  */
 package org.dcache.chimera;
 
-import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.common.io.ByteStreams;
 import com.google.common.primitives.Ints;
@@ -39,7 +38,6 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.InvocationTargetException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -54,6 +52,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.ServiceLoader;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -69,6 +68,7 @@ import org.dcache.chimera.posix.Stat;
 import org.dcache.chimera.store.InodeStorageInformation;
 import org.dcache.chimera.store.Checksum;
 import org.dcache.chimera.store.ChecksumType;
+import org.dcache.chimera.spi.DBDriverProvider;
 
 import static java.util.stream.Collectors.toList;
 import static org.dcache.chimera.FileSystemProvider.StatCacheOption;
@@ -79,12 +79,15 @@ import static org.dcache.chimera.FileSystemProvider.StatCacheOption.STAT;
  *
  *
  */
-class FsSqlDriver {
+public class FsSqlDriver {
 
     /**
      * logger
      */
     private static final Logger _log = LoggerFactory.getLogger(FsSqlDriver.class);
+
+    private static final ServiceLoader<DBDriverProvider> ALL_PROVIDERS
+            = ServiceLoader.load(DBDriverProvider.class);
 
     /**
      * default file IO mode
@@ -1668,24 +1671,20 @@ class FsSqlDriver {
      *  creates an instance of org.dcache.chimera.&lt;dialect&gt;FsSqlDriver or
      *  default driver, if specific driver not available
      *
-     * @param dialect
      * @return FsSqlDriver
      */
-    static FsSqlDriver getDriverInstance(String dialect, DataSource dataSource) throws ChimeraFsException
-    {
-        String dialectDriverClass = "org.dcache.chimera." + dialect + "FsSqlDriver";
+    static FsSqlDriver getDriverInstance(DataSource dataSource) throws ChimeraFsException, SQLException {
 
-        try {
-            return (FsSqlDriver) Class.forName(dialectDriverClass).getDeclaredConstructor(DataSource.class).newInstance(dataSource);
-        } catch (InvocationTargetException e) {
-            Throwables.propagateIfInstanceOf(e.getCause(), ChimeraFsException.class);
-            throw new RuntimeException("Failed to instantiate Chimera driver: " + e.getMessage(), e);
-        } catch (NoSuchMethodException | InstantiationException | IllegalAccessException e) {
-            throw new RuntimeException("Failed to instantiate Chimera driver: " + e.getMessage(), e);
-        } catch (ClassNotFoundException e) {
-            _log.info(dialectDriverClass + " not found, using default FsSQLDriver.");
-            return new FsSqlDriver(dataSource);
+        for (DBDriverProvider driverProvider : ALL_PROVIDERS) {
+            if (driverProvider.isSupportDB(dataSource)) {
+                FsSqlDriver driver = driverProvider.getDriver(dataSource);
+                _log.info("Using DBDriverProvider: {}", driver.getClass().getName());
+                return driver;
+            }
         }
+        // fall back to generic implementation
+        _log.warn("No sutable DBDriverProvider found. Falling back to generic.");
+        return new FsSqlDriver(dataSource);
     }
 
     private PreparedStatement generateAttributeUpdateStatement(Connection dbConnection, FsInode inode, Stat stat, int level)

@@ -18,6 +18,7 @@ package org.dcache.chimera;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import java.sql.SQLException;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -26,11 +27,11 @@ import javax.sql.DataSource;
 
 public class FsFactory
 {
-    public static FileSystemProvider createFileSystem(String url, String user, String password, String dialect) throws ChimeraFsException
+    public static FileSystemProvider createFileSystem(String url, String user, String password) throws ChimeraFsException, SQLException
     {
         DataSource dataSource = getDataSource(url, user, password);
         PlatformTransactionManager txManager =  new DataSourceTransactionManager(dataSource);
-        return new JdbcFs(dataSource, txManager, dialect);
+        return new JdbcFs(dataSource, txManager);
     }
 
     public static HikariDataSource getDataSource(String url, String user, String pass)
