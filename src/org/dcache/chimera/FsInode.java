@@ -19,7 +19,6 @@ package org.dcache.chimera;
 import com.google.common.primitives.Longs;
 
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
