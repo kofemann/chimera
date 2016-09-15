@@ -96,13 +96,13 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <version>1.4.191</version>
+            <version>1.4.192</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.liquibase</groupId>
             <artifactId>liquibase-core</artifactId>
-            <version>3.4.2</version>
+            <version>3.5.1</version>
         </dependency>
         <dependency>
             <groupId>com.mattbertolini</groupId>
