@@ -20,8 +20,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class DirectoryStreamHelper {
 
@@ -35,22 +35,14 @@ public class DirectoryStreamHelper {
      */
     public static List<HimeraDirectoryEntry> listOf(FsInode inode) throws IOException, IOHimeraFsException {
 
-        List<HimeraDirectoryEntry> directoryList;
-
         int estimatedListSize = inode.statCache().getNlink();
         if (estimatedListSize < 0) {
             throw new RuntimeException("Invalid nlink count for directory: " + inode);
-        } else {
-            directoryList = new ArrayList<>(estimatedListSize);
         }
 
         try (DirectoryStreamB<HimeraDirectoryEntry> dirStream =
                 inode.newDirectoryStream()) {
-            for (HimeraDirectoryEntry e : dirStream) {
-                directoryList.add(e);
-            }
+            return dirStream.stream().collect(Collectors.toList());
         }
-
-        return directoryList;
     }
 }

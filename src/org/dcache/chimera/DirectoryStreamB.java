@@ -18,6 +18,8 @@ package org.dcache.chimera;
 
 import java.io.Closeable;
 import java.util.Iterator;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * An object to iterate over the entries in a directory. A directory stream
@@ -53,4 +55,13 @@ public interface DirectoryStreamB<T> extends Closeable, Iterable<T> {
 
     @Override
     Iterator<T> iterator();
+
+    /**
+     * Returns a sequential {@code Stream} directory entries.
+     *
+     * @return a sequential {@code Stream} over the entries in the directory.
+     */
+    default Stream<T> stream() {
+        return StreamSupport.stream(spliterator(), true);
+    }
 }
