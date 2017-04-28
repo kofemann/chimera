@@ -8,7 +8,7 @@
 
     <groupId>org.dcache.chimera</groupId>
     <artifactId>chimera-core</artifactId>
-    <version>3.1.0</version>
+    <version>3.2.0-SNAPSHOT</version>
     <name>RDBMS based file system implementation</name>
     <packaging>jar</packaging>
     <url>http://www.dCache.ORG</url>
@@ -16,7 +16,7 @@
     <scm>
         <connection>scm:git:https://github.com/kofemann/chimera.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/kofemann/chimera.git</developerConnection>
-        <tag>chimera-core-3.1.0</tag>
+        <tag>HEAD</tag>
     </scm>
 
     <!--
