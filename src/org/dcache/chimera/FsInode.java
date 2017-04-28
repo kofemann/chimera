@@ -26,6 +26,7 @@ import org.dcache.acl.ACE;
 import org.dcache.chimera.posix.Stat;
 
 import static org.dcache.chimera.FileSystemProvider.StatCacheOption.STAT;
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * inode representation
@@ -102,6 +103,7 @@ public class FsInode {
 
     public FsInode(FileSystemProvider fs, long ino, FsInodeType type, int level, Stat stat)
     {
+        checkArgument(level >= 0 && level <= JdbcFs.LEVELS_NUMBER, "invalid level number: " + level);
         _ino = ino;
         _fs = fs;
         _level = level;
@@ -173,7 +175,7 @@ public class FsInode {
      * @return a byte[] representation of inode, including type and fsid
      */
     public byte[] getIdentifier() {
-        return byteBase( Integer.toString(_level).getBytes());
+        return byteBase(new byte[] { (byte)(0x30 + _level)}); // 0x30 is ascii code for '0'
     }
 
     /**
@@ -396,9 +398,7 @@ public class FsInode {
         FsInode otherInode = (FsInode) o;
 
         // FIXME: _jdbcFs it the part of the test
-        return _level == otherInode._level && _ino == otherInode._ino && _type.equals(otherInode._type);
-
-        // return this.toFullString().equals( otherInode.toFullString() ) ;
+        return _level == otherInode._level && _ino == otherInode._ino && _type == otherInode._type;
     }
 
     @Override

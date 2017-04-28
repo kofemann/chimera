@@ -1675,7 +1675,7 @@ public class FsSqlDriver {
      */
     static FsSqlDriver getDriverInstance(DataSource dataSource) throws ChimeraFsException, SQLException {
 
-        for (DBDriverProvider driverProvider : ALL_PROVIDERS) {
+        for (DBDriverProvider driverProvider: ALL_PROVIDERS) {
             if (driverProvider.isSupportDB(dataSource)) {
                 FsSqlDriver driver = driverProvider.getDriver(dataSource);
                 _log.info("Using DBDriverProvider: {}", driver.getClass().getName());
@@ -1689,6 +1689,18 @@ public class FsSqlDriver {
 
     private PreparedStatement generateAttributeUpdateStatement(Connection dbConnection, FsInode inode, Stat stat, int level)
 	    throws SQLException {
+
+        if (stat.isDefined(Stat.StatAttributes.ATIME) && stat.getDefinedAttributeses().size() == 1) {
+            /*
+             * ATIME only update. The CTIME must stay unchanged.
+             */
+            PreparedStatement preparedStatement = dbConnection.prepareStatement(
+                    "UPDATE t_inodes SET iatime=? WHERE inumber=?");
+            preparedStatement.setTimestamp(1, new Timestamp(stat.getATime()));
+            preparedStatement.setLong(2, inode.ino());
+            return preparedStatement;
+        }
+
         final String attrUpdatePrefix =
                 (level == 0)
                 ? "UPDATE t_inodes SET ictime=?,igeneration=igeneration+1"
