@@ -19,7 +19,7 @@ public abstract class ChimeraTestCaseHelper {
 
     protected FileSystemProvider _fs;
     protected FsInode _rootInode;
-    private HikariDataSource _dataSource;
+    protected HikariDataSource _dataSource;
 
     @Before
     public void setUp() throws Exception {
