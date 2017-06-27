@@ -16,80 +16,30 @@
  */
 package org.dcache.chimera.store;
 
-/*
- *	@Immutable
- */
-public final class AccessLatency {
+public enum AccessLatency {
 
+    ONLINE(1),
+    NEARLINE(0);
 
-    private final String _name;
     private final int _id;
 
-    public static final AccessLatency ONLINE = new AccessLatency("ONLINE", 1);
-    public static final AccessLatency NEARLINE = new AccessLatency("NEARLINE", 0);
-
-
-    private AccessLatency(String name, int id) {
-        _name = name;
+    private AccessLatency(int id) {
         _id = id;
-    }
-
-    public static AccessLatency[] getAllLatencies() {
-        return new AccessLatency[]{ONLINE, NEARLINE};
-    }
-
-    @Override
-    public String toString() {
-        return _name;
     }
 
     public int getId() {
         return _id;
     }
 
-    public static AccessLatency valueOf(String state) throws IllegalArgumentException {
-        if (state == null || state.equalsIgnoreCase("null")) {
-            throw new NullPointerException(" null state ");
-        }
-
-        if (ONLINE._name.equalsIgnoreCase(state)) return ONLINE;
-
-        if (NEARLINE._name.equalsIgnoreCase(state)) return NEARLINE;
-
-        try {
-            int id = Integer.parseInt(state);
-            return valueOf(id);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Unknown AccessLatency");
-        }
-    }
-
     public static AccessLatency valueOf(int id) throws IllegalArgumentException {
 
-        if (ONLINE._id == id) return ONLINE;
-
-        if (NEARLINE._id == id) return NEARLINE;
+        for(AccessLatency al: values()) {
+            if (al.getId() == id) {
+                return al;
+            }
+        }
 
         throw new IllegalArgumentException("Unknown State Id");
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        return (obj instanceof AccessLatency) && (((AccessLatency) obj).getId() == this.getId());
-    }
-
-    @Override
-    public int hashCode() {
-        return _id;
-    }
-
 }
-/*
- * $Log: AccessLatency.java,v $
- * Revision 1.2  2006/11/26 14:00:01  tigran
- * equils needs hashCode as well to be overriden
- *
- * Revision 1.1  2006/11/20 15:04:53  tigran
- * added storageInfo manipulation
- *
- */

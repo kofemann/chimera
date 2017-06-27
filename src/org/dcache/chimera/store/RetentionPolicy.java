@@ -16,81 +16,31 @@
  */
 package org.dcache.chimera.store;
 
-/*
- *	@Immutable
- */
-public final class RetentionPolicy {
+public enum RetentionPolicy {
 
-    private final String _name;
+    REPLICA(2),
+    OUTPUT(1),
+    CUSTODIAL( 0);
+
     private final int _id;
 
-    public static final RetentionPolicy REPLICA = new RetentionPolicy("REPLICA", 2);
-    public static final RetentionPolicy OUTPUT = new RetentionPolicy("OUTPUT", 1);
-    public static final RetentionPolicy CUSTODIAL = new RetentionPolicy("CUSTODIAL", 0);
-
-    private RetentionPolicy(String name, int id) {
-        _name = name;
+    private RetentionPolicy(int id) {
         _id = id;
-    }
-
-    public static RetentionPolicy[] getAllPoliciess() {
-        return new RetentionPolicy[]{REPLICA, OUTPUT, CUSTODIAL};
-    }
-
-    @Override
-    public String toString() {
-        return _name;
     }
 
     public int getId() {
         return _id;
     }
 
-    public static RetentionPolicy valueOf(String state) throws IllegalArgumentException {
-        if (state == null || state.equalsIgnoreCase("null")) {
-            throw new NullPointerException(" null state ");
-        }
-
-        if (REPLICA._name.equalsIgnoreCase(state)) return REPLICA;
-
-        if (OUTPUT._name.equalsIgnoreCase(state)) return OUTPUT;
-
-        if (CUSTODIAL._name.equalsIgnoreCase(state)) return CUSTODIAL;
-        try {
-            int id = Integer.parseInt(state);
-            return valueOf(id);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Unknown State");
-        }
-    }
-
     public static RetentionPolicy valueOf(int id) throws IllegalArgumentException {
 
-        if (REPLICA._id == id) return REPLICA;
-
-        if (OUTPUT._id == id) return OUTPUT;
-
-        if (CUSTODIAL._id == id) return CUSTODIAL;
-
+        for(RetentionPolicy rp: values()) {
+            if( rp.getId() == id) {
+                return rp;
+            }
+        }
+        
         throw new IllegalArgumentException("Unknown State Id");
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        return (obj instanceof RetentionPolicy) && (((RetentionPolicy) obj).getId() == this.getId());
-    }
-
-    @Override
-    public int hashCode() {
-        return _id;
-    }
 }
-/*
- * $Log: RetentionPolicy.java,v $
- * Revision 1.2  2006/11/26 14:00:01  tigran
- * equils needs hashCode as well to be overriden
- *
- * Revision 1.1  2006/11/20 15:04:53  tigran
- * added storageInfo manipulation
- *
- */
