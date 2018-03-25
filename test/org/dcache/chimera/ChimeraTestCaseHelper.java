@@ -1,5 +1,6 @@
 package org.dcache.chimera;
 
+import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.FileReader;
 import liquibase.Liquibase;
@@ -27,10 +28,14 @@ public abstract class ChimeraTestCaseHelper {
         Properties dbProperties = new Properties();
         dbProperties.load(new FileReader("chimera-test.properties"));
 
-        _dataSource = FsFactory.getDataSource(
-                dbProperties.getProperty("chimera.db.url"),
-                dbProperties.getProperty("chimera.db.user"),
-                dbProperties.getProperty("chimera.db.password"));
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(dbProperties.getProperty("chimera.db.url"));
+        config.setUsername(dbProperties.getProperty("chimera.db.user"));
+        config.setPassword(dbProperties.getProperty("chimera.db.password"));
+        config.setMaximumPoolSize(3);
+        config.setMinimumIdle(0);
+
+        _dataSource = new HikariDataSource(config);
 
         try (Connection conn = _dataSource.getConnection()) {
             conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
