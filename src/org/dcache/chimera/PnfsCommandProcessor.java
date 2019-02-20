@@ -34,7 +34,7 @@ public class PnfsCommandProcessor {
                 case '(':
                     deep++;
                     if (deep == 1) {
-                        begin = i;
+                        begin = i+1;
                     }
                     break;
                 case ')':
@@ -44,7 +44,6 @@ public class PnfsCommandProcessor {
                     }
                     break;
             }
-
         }
 
         return list.isEmpty() ? new String[] {command} : list.toArray(new String[0]);
