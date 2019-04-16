@@ -33,7 +33,6 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.TransactionSystemException;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.IMap;
 
 import javax.sql.DataSource;
@@ -134,8 +133,6 @@ public class JdbcFs implements FileSystemProvider {
                     }
             , _fsStatUpdateExecutor));
 
-    private HazelcastInstance hz;
-
     /* The PNFS ID to inode number mapping.
      */
     protected final IMap<String, Long> _inoCache;
@@ -162,12 +159,14 @@ public class JdbcFs implements FileSystemProvider {
      */
     private static final int MAX_NAME_LEN = 255;
 
-    public JdbcFs(DataSource dataSource, PlatformTransactionManager txManager) throws ChimeraFsException, SQLException
+    public JdbcFs(DataSource dataSource, PlatformTransactionManager txManager,
+            HazelcastInstance hz) throws ChimeraFsException, SQLException
     {
-        this(dataSource, txManager, 0);
+        this(dataSource, txManager, hz, 0);
     }
 
-    public JdbcFs(DataSource dataSource, PlatformTransactionManager txManager, int id) throws ChimeraFsException, SQLException
+    public JdbcFs(DataSource dataSource, PlatformTransactionManager txManager,
+            HazelcastInstance hz, int id) throws ChimeraFsException, SQLException
     {
         _dbConnectionsPool = dataSource;
         _fsId = id;
@@ -176,8 +175,6 @@ public class JdbcFs implements FileSystemProvider {
 
         // try to get database dialect specific query engine
         _sqlDriver = FsSqlDriver.getDriverInstance(dataSource);
-
-        hz = Hazelcast.newHazelcastInstance();
 
         _idCache = hz.getMap("inumber-to-pnfsid");
         _inoCache = hz.getMap("pnfsid-to-inumber");
@@ -1360,7 +1357,7 @@ public class JdbcFs implements FileSystemProvider {
      */
     @Override
     public void close() throws IOException {
-        hz.shutdown();
+
     }
 
     @Override

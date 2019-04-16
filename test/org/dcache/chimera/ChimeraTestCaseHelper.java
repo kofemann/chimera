@@ -1,5 +1,6 @@
 package org.dcache.chimera;
 
+import com.hazelcast.core.Hazelcast;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.FileReader;
@@ -48,7 +49,7 @@ public abstract class ChimeraTestCaseHelper {
         }
 
         PlatformTransactionManager txManager =  new DataSourceTransactionManager(_dataSource);
-        _fs = new JdbcFs(_dataSource, txManager);
+        _fs = new JdbcFs(_dataSource, txManager,  Hazelcast.newHazelcastInstance());
         _rootInode = _fs.path2inode("/");
     }
 
@@ -58,6 +59,7 @@ public abstract class ChimeraTestCaseHelper {
         conn.createStatement().execute("SHUTDOWN;");
         _dataSource.close();
         _fs.close();
+        Hazelcast.shutdownAll();
     }
 
 }
