@@ -6,6 +6,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,6 +16,9 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 
 import org.dcache.acl.ACE;
 import org.dcache.acl.enums.AccessMask;
@@ -1215,4 +1219,35 @@ public class BasicTest extends ChimeraTestCaseHelper {
         }
     }
 
+    @Test
+    public void testTashTimestampOnRemove() throws Exception {
+        final String name = "testTashTimestampOnRemove";
+        FsInode inode = _rootInode.create(name, 0, 0, 0644);
+        String id = inode.getId();
+
+
+        // ensure location to get entry in the trash table
+        _fs.addInodeLocation(inode, 1, "aPool");
+        JdbcTemplate jdbc = new JdbcTemplate(_dataSource);
+
+        // wind back timestamp
+        Instant day0 = Instant.parse("2000-09-16T09:00:00.00Z"); // dCache birth day
+        jdbc.update("update t_locationinfo set ictime=?",
+                ps -> ps.setTimestamp(1, Timestamp.from(day0)));
+
+        _fs.remove(_rootInode, name, inode);
+
+        Timestamp ctime = jdbc.query("SELECT * from t_locationinfo_trash where ipnfsid=? and itype=1",
+                ps -> ps.setString(1, id),
+                rs -> rs.next() ? rs.getTimestamp("ictime"): null);
+
+        assertNotNull("No entries in trash table", ctime);
+
+        // as timestamp depends on thread execution and, and, and... differce is
+        // couple of minutes.
+
+        Instant removeTime = ctime.toInstant();
+        Duration diff = Duration.between(removeTime, Instant.now()).abs();
+        assertTrue(diff.toMinutes() < 2);
+    }
 }
