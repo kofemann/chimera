@@ -1250,4 +1250,19 @@ public class BasicTest extends ChimeraTestCaseHelper {
         Duration diff = Duration.between(removeTime, Instant.now()).abs();
         assertTrue(diff.toMinutes() < 2);
     }
+
+    @Test
+    public void testOverflowOnJomboFiles() throws ChimeraFsException {
+
+        Stat stat = new Stat();
+        stat.setSize(Long.MAX_VALUE);
+
+        FsInode file1 = _fs.createFile(_rootInode, "file1", 0, 0, 0644);
+        file1.setStat(stat);
+        FsInode file2 = _fs.createFile(_rootInode, "file2", 0, 0, 0644);
+        file2.setStat(stat);
+
+        FsStat fsStat = _fs.getFsStat();
+        assertTrue(fsStat.getUsedFiles() > 0);
+    }
 }

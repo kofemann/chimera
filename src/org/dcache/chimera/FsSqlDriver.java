@@ -37,6 +37,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -138,8 +139,12 @@ public class FsSqlDriver {
         return _jdbc.queryForObject(
                 "SELECT count(*) AS usedFiles, SUM(isize) AS usedSpace FROM t_inodes WHERE itype=32768",
                 (rs, rowNum) -> {
-                    long usedFiles = rs.getLong("usedFiles");
-                    long usedSpace = rs.getLong("usedSpace");
+                    long usedFiles = rs.getBigDecimal("usedFiles")
+                            .min(BigDecimal.valueOf(Long.MAX_VALUE))
+                            .longValue();
+                    long usedSpace = rs.getBigDecimal("usedSpace")
+                            .min(BigDecimal.valueOf(Long.MAX_VALUE))
+                            .longValue();
                     return new FsStat(JdbcFs.AVAILABLE_SPACE, JdbcFs.TOTAL_FILES, usedSpace, usedFiles);
                 });
     }
