@@ -38,6 +38,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -1499,7 +1500,7 @@ public class FsSqlDriver {
             if (UnixPermission.getType(s.getMode()) == UnixPermission.S_IFLNK) {
                 byte[] b = new byte[(int) s.getSize()];
                 int n = read(inode, 0, 0, b, 0, b.length);
-                String link = new String(b, 0, n);
+                String link = new String(b, 0, n, StandardCharsets.UTF_8);
                 if (link.charAt(0) == File.separatorChar) {
                     parentInode = new FsInode(parentInode.getFs(), _root);
                 }
@@ -1556,7 +1557,7 @@ public class FsSqlDriver {
             if (UnixPermission.getType(s.getMode()) == UnixPermission.S_IFLNK) {
                 byte[] b = new byte[(int) s.getSize()];
                 int n = read(inode, 0, 0, b, 0, b.length);
-                String link = new String(b, 0, n);
+                String link = new String(b, 0, n, StandardCharsets.UTF_8);
                 if (link.charAt(0) == '/') {
                     parentInode = new FsInode(parentInode.getFs(), _root);
                     inodes.add(parentInode);

@@ -39,6 +39,7 @@ import javax.sql.DataSource;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.EnumSet;
@@ -246,7 +247,7 @@ public class JdbcFs implements FileSystemProvider {
 
     @Override
     public FsInode createLink(FsInode parent, String name, String dest) throws ChimeraFsException {
-        return inTransaction(status -> createLink(parent, name, 0, 0, 0644, dest.getBytes()));
+        return inTransaction(status -> createLink(parent, name, 0, 0, 0644, dest.getBytes(StandardCharsets.UTF_8)));
     }
 
     @Override
