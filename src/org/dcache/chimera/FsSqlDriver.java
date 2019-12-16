@@ -983,6 +983,23 @@ public class FsSqlDriver {
                      });
     }
 
+    boolean setInodeLocation(FsInode inode, int type, String location) {
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        return _jdbc.update("INSERT INTO t_locationinfo (inumber,itype,ilocation,ipriority,ictime,iatime,istate) "
+                + "(SELECT * FROM (VALUES (?,?,?,?,?,?,?)) v WHERE NOT EXISTS "
+                + "(SELECT 1 FROM t_locationinfo WHERE inumber=?))",
+                ps -> {
+                    ps.setLong(1, inode.ino());
+                    ps.setInt(2, type);
+                    ps.setString(3, location);
+                    ps.setInt(4, 10); // default priority
+                    ps.setTimestamp(5, now);
+                    ps.setTimestamp(6, now);
+                    ps.setInt(7, 1); // online
+                    ps.setLong(8, inode.ino());
+                }) > 0;
+    }
+
     /**
      *
      *  remove the location for a inode

@@ -246,6 +246,8 @@ public interface FileSystemProvider extends Closeable {
     void addInodeLocation(FsInode inode, int type,
                           String location) throws ChimeraFsException;
 
+    boolean setInodeLocation(FsInode inode, int type, String location) throws ChimeraFsException;
+
     void clearInodeLocation(FsInode inode, int type,
                             String location) throws ChimeraFsException;
 
