@@ -9,6 +9,7 @@ import org.junit.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -1264,5 +1265,74 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsStat fsStat = _fs.getFsStat();
         assertTrue(fsStat.getUsedFiles() > 0);
+    }
+
+    @Test
+    public void tesSetGetXattr() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+
+        String key = "attr1";
+        byte[] value = "cat".getBytes(StandardCharsets.UTF_8);
+        _fs.setXattr(inode, key, value);
+        byte[] result = _fs.getXattr(inode, key);
+
+        assertArrayEquals("Get xattr returns unexpected value", value, result);
+    }
+
+    @Test(expected = FileNotFoundHimeraFsException.class)
+    public void tesGetXattrNoSet() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+
+        String key = "attr1";
+        _fs.getXattr(inode, key);
+    }
+
+    @Test
+    public void tesListXattrNoAttrs() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+
+        Collection<String> xattrs = _fs.listXattrs(inode);
+        assertTrue("Unexpected attributed by newly created file", xattrs.isEmpty());
+    }
+
+    @Test
+    public void tesListXattrAfterSet() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+
+        String key = "attr1";
+        byte[] value = "cat".getBytes(StandardCharsets.UTF_8);
+        _fs.setXattr(inode, key, value);
+
+        Collection<String> xattrs = _fs.listXattrs(inode);
+
+        assertEquals("Unexpected number of attributes", 1, xattrs.size());
+    }
+
+    @Test(expected = FileNotFoundHimeraFsException.class)
+    public void tesRemoveXattrNoAttrs() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+        String key = "attr1";
+        _fs.removeXattr(inode, key);
+    }
+
+    @Test
+    public void tesRemoveXattrAfterSet() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+        String key = "attr1";
+        byte[] value = "cat".getBytes(StandardCharsets.UTF_8);
+        _fs.setXattr(inode, key, value);
+        _fs.removeXattr(inode, key);
     }
 }

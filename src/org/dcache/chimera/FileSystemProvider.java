@@ -17,6 +17,7 @@
 package org.dcache.chimera;
 
 import java.io.Closeable;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -352,4 +353,40 @@ public interface FileSystemProvider extends Closeable {
     {
         STAT, NO_STAT
     }
+
+    /**
+     * Get an Extended Attribute of a inode.
+     * @param inode file system object.
+     * @param attr extended attribute name.
+     * @return value of the attribute.
+     * @throws ChimeraFsException
+     */
+    byte[] getXattr(FsInode inode, String attr) throws ChimeraFsException;
+
+    /**
+     * Set or change extended attribute of a given file system object.
+     * @param inode file system object.
+     * @param attr extended attribute name.
+     * @param value of the attribute.
+     * @throws ChimeraFsException
+     */
+    void setXattr(FsInode inode, String attr, byte[] value) throws ChimeraFsException;
+
+    /**
+     * Retrieve an array of extended attribute names for a given file system object.
+     *
+     * @param inode file system object.
+     * @return an array of extended attribute names.
+     * @throws ChimeraFsException
+     */
+    Collection<String> listXattrs(FsInode inode) throws ChimeraFsException;
+
+    /**
+     * Remove specified extended attribute for a given file system object.
+     *
+     * @param inode file system object.
+     * @param attr extended attribute name.
+     * @throws ChimeraFsException
+     */
+    void removeXattr(FsInode inode, String attr) throws ChimeraFsException;
 }

@@ -42,6 +42,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -1395,6 +1396,36 @@ public class JdbcFs implements FileSystemProvider {
     @Override
     public void unpin(FsInode pnfsid) throws ChimeraFsException {
        throw new ChimeraFsException(NOT_IMPL);
+    }
+
+    @Override
+    public byte[] getXattr(FsInode inode, String attr) throws ChimeraFsException {
+        return inTransaction(status -> {
+            return _sqlDriver.getXattr(inode, attr);
+        });
+    }
+
+    @Override
+    public void setXattr(FsInode inode, String attr, byte[] value) throws ChimeraFsException {
+        inTransaction(status -> {
+            _sqlDriver.setXattr(inode, attr, value);
+            return null;
+        });
+    }
+
+    @Override
+    public Collection<String> listXattrs(FsInode inode) throws ChimeraFsException {
+        return inTransaction(status -> {
+            return _sqlDriver.listXattrs(inode);
+        });
+    }
+
+    @Override
+    public void removeXattr(FsInode inode, String attr) throws ChimeraFsException {
+        inTransaction(status -> {
+            _sqlDriver.removeXattr(inode, attr);
+            return null;
+        });
     }
 
     private interface FallibleTransactionCallback<T>
