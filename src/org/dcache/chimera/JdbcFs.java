@@ -1400,9 +1400,7 @@ public class JdbcFs implements FileSystemProvider {
 
     @Override
     public byte[] getXattr(FsInode inode, String attr) throws ChimeraFsException {
-        return inTransaction(status -> {
-            return _sqlDriver.getXattr(inode, attr);
-        });
+        return inTransaction(status -> _sqlDriver.getXattr(inode, attr));
     }
 
     @Override
@@ -1415,9 +1413,7 @@ public class JdbcFs implements FileSystemProvider {
 
     @Override
     public Collection<String> listXattrs(FsInode inode) throws ChimeraFsException {
-        return inTransaction(status -> {
-            return _sqlDriver.listXattrs(inode);
-        });
+        return inTransaction(status -> _sqlDriver.listXattrs(inode));
     }
 
     @Override
