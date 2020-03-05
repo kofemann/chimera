@@ -195,9 +195,6 @@ public class JdbcFs implements FileSystemProvider {
         try {
             result = callback.doInTransaction(status);
             _tx.commit(status);
-        } catch (ChimeraFsException e) {
-            rollbackOnException(status, e);
-            throw e;
         } catch (NonTransientDataAccessResourceException e) {
             rollbackOnException(status, e);
             throw new BackEndErrorHimeraFsException(e.getMessage(), e);
