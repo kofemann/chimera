@@ -8,10 +8,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -35,6 +32,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.*;
+import static org.dcache.chimera.FileSystemProvider.SetXattrMode;
 
 public class BasicTest extends ChimeraTestCaseHelper {
 
@@ -1275,10 +1273,69 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         String key = "attr1";
         byte[] value = "cat".getBytes(StandardCharsets.UTF_8);
-        _fs.setXattr(inode, key, value);
+        _fs.setXattr(inode, key, value, SetXattrMode.CREATE);
         byte[] result = _fs.getXattr(inode, key);
 
         assertArrayEquals("Get xattr returns unexpected value", value, result);
+    }
+
+    @Test(expected = FileExistsChimeraFsException.class)
+    public void testExclusiveCrateXattr() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+
+        String key = "attr1";
+        byte[] value = "cat".getBytes(StandardCharsets.UTF_8);
+        _fs.setXattr(inode, key, value, SetXattrMode.CREATE);
+        _fs.setXattr(inode, key, value, SetXattrMode.CREATE);
+    }
+
+    @Test(expected = FileNotFoundHimeraFsException.class)
+    public void testUpdateOnlyXattr() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+
+        String key = "attr1";
+        byte[] value = "cat".getBytes(StandardCharsets.UTF_8);
+        _fs.setXattr(inode, key, value, SetXattrMode.REPLACE);
+    }
+
+    @Test
+    public void testUpdateExistingXattr() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+
+        String key = "attr1";
+        byte[] value1 = "cat".getBytes(StandardCharsets.UTF_8);
+        byte[] value2 = "cat".getBytes(StandardCharsets.UTF_8);
+        _fs.setXattr(inode, key, value1, SetXattrMode.CREATE);
+        _fs.setXattr(inode, key, value2, SetXattrMode.REPLACE);
+        byte[] result = _fs.getXattr(inode, key);
+
+        assertArrayEquals("Get xattr returns unexpected value", value2, result);
+    }
+
+    @Test
+    public void testUpdateOrCreateXattr() throws Exception {
+
+        FsInode dir = _fs.mkdir("/test");
+        FsInode inode = _fs.createFile(dir, "aFile");
+
+        String key = "attr1";
+        byte[] value1 = "cat".getBytes(StandardCharsets.UTF_8);
+        byte[] value2 = "cat".getBytes(StandardCharsets.UTF_8);
+        _fs.setXattr(inode, key, value1, SetXattrMode.EITHER);
+        byte[] result = _fs.getXattr(inode, key);
+
+        assertArrayEquals("Get xattr returns unexpected value", value1, result);
+
+        _fs.setXattr(inode, key, value2, SetXattrMode.EITHER);
+        result = _fs.getXattr(inode, key);
+
+        assertArrayEquals("Get xattr returns unexpected value", value2, result);
     }
 
     @Test(expected = FileNotFoundHimeraFsException.class)
@@ -1309,7 +1366,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         String key = "attr1";
         byte[] value = "cat".getBytes(StandardCharsets.UTF_8);
-        _fs.setXattr(inode, key, value);
+        _fs.setXattr(inode, key, value, SetXattrMode.CREATE);
 
         Collection<String> xattrs = _fs.listXattrs(inode);
 
@@ -1332,7 +1389,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         FsInode inode = _fs.createFile(dir, "aFile");
         String key = "attr1";
         byte[] value = "cat".getBytes(StandardCharsets.UTF_8);
-        _fs.setXattr(inode, key, value);
+        _fs.setXattr(inode, key, value, SetXattrMode.CREATE);
         _fs.removeXattr(inode, key);
     }
 }

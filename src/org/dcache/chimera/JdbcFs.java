@@ -1401,9 +1401,13 @@ public class JdbcFs implements FileSystemProvider {
     }
 
     @Override
-    public void setXattr(FsInode inode, String attr, byte[] value) throws ChimeraFsException {
+    public void setXattr(FsInode inode, String attr, byte[] value, SetXattrMode mode) throws ChimeraFsException {
         inTransaction(status -> {
-            _sqlDriver.setXattr(inode, attr, value);
+            try {
+                _sqlDriver.setXattr(inode, attr, value, mode);
+            } catch (DuplicateKeyException e) {
+                throw new FileExistsChimeraFsException(e);
+            }
             return null;
         });
     }

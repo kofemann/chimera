@@ -75,6 +75,7 @@ import org.dcache.chimera.spi.DBDriverProvider;
 import static java.util.stream.Collectors.toList;
 import static org.dcache.chimera.FileSystemProvider.StatCacheOption;
 import static org.dcache.chimera.FileSystemProvider.StatCacheOption.STAT;
+import static org.dcache.chimera.FileSystemProvider.SetXattrMode;
 
 /**
  * SQL driver
@@ -1823,8 +1824,30 @@ public class FsSqlDriver {
      * @param value of the attribute.
      * @throws ChimeraFsException
      */
-    void setXattr(FsInode inode, String attr, byte[] value) throws ChimeraFsException {
-        _jdbc.update("INSERT INTO t_xattr (inumber, ikey, ivalue) VALUES (?,?,?)", inode.ino(), attr, value);
+    void setXattr(FsInode inode, String attr, byte[] value, SetXattrMode mode) throws ChimeraFsException {
+        switch (mode) {
+            case CREATE: {
+                _jdbc.update("INSERT INTO t_xattr (inumber, ikey, ivalue) VALUES (?,?,?)",
+                        inode.ino(), attr, value);
+                break;
+            }
+            case REPLACE: {
+                int n = _jdbc.update("UPDATE t_xattr SET ivalue = ? WHERE  inumber = ? AND ikey = ?",
+                        value, inode.ino(), attr);
+                if (n == 0) {
+                    throw new FileNotFoundHimeraFsException("No such attribute");
+                }
+                break;
+            }
+            case EITHER: {
+                int n = _jdbc.update("update t_xattr SET ivalue = ? WHERE  inumber = ? AND ikey = ?",
+                        value, inode.ino(), attr);
+                if (n == 0) {
+                    _jdbc.update("INSERT INTO t_xattr (inumber, ikey, ivalue) VALUES (?,?,?)",
+                            inode.ino(), attr, value);
+                }
+            }
+        }
     }
 
     /**

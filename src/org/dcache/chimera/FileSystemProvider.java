@@ -355,6 +355,28 @@ public interface FileSystemProvider extends Closeable {
     }
 
     /**
+     * Mode of setXattr operation.
+     */
+    enum SetXattrMode
+    {
+
+        /**
+         * Created if the named attribute does not already exist, or the value will be replaced if the attribute already
+         * exists.
+         */
+        EITHER,
+
+        /**
+         * Perform a pure create, which fails if the named attribute exists already.
+         */
+        CREATE,
+        /**
+         * Perform a pure replace operation, which fails if the named attribute does not already exist.
+         */
+        REPLACE
+    }
+
+    /**
      * Get an Extended Attribute of a inode.
      * @param inode file system object.
      * @param attr extended attribute name.
@@ -368,9 +390,10 @@ public interface FileSystemProvider extends Closeable {
      * @param inode file system object.
      * @param attr extended attribute name.
      * @param value of the attribute.
+     * @param mode mode of setXattr operation.
      * @throws ChimeraFsException
      */
-    void setXattr(FsInode inode, String attr, byte[] value) throws ChimeraFsException;
+    void setXattr(FsInode inode, String attr, byte[] value, SetXattrMode mode) throws ChimeraFsException;
 
     /**
      * Retrieve an array of extended attribute names for a given file system object.
