@@ -62,6 +62,6 @@ public interface DirectoryStreamB<T> extends Closeable, Iterable<T> {
      * @return a sequential {@code Stream} over the entries in the directory.
      */
     default Stream<T> stream() {
-        return StreamSupport.stream(spliterator(), true);
+        return StreamSupport.stream(spliterator(), false);
     }
 }
