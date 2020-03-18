@@ -145,9 +145,9 @@ public class FsSqlDriver {
                     long usedFiles = rs.getBigDecimal("usedFiles")
                             .min(BigDecimal.valueOf(Long.MAX_VALUE))
                             .longValue();
-                    long usedSpace = rs.getBigDecimal("usedSpace")
-                            .min(BigDecimal.valueOf(Long.MAX_VALUE))
-                            .longValue();
+                    // SUM(isize) of an empty table returns null
+                    BigDecimal usedSpaceB = rs.getBigDecimal("usedSpace");
+                    long usedSpace = usedSpaceB == null? 0L : usedSpaceB.min(BigDecimal.valueOf(Long.MAX_VALUE)).longValue();
                     return new FsStat(JdbcFs.AVAILABLE_SPACE, JdbcFs.TOTAL_FILES, usedSpace, usedFiles);
                 });
     }
