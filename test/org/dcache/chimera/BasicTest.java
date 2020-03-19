@@ -1298,7 +1298,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         _fs.setXattr(inode, key, value, SetXattrMode.CREATE);
     }
 
-    @Test(expected = FileNotFoundHimeraFsException.class)
+    @Test(expected = NoXdataChimeraException.class)
     public void testUpdateOnlyXattr() throws Exception {
 
         FsInode dir = _fs.mkdir("/test");
@@ -1345,7 +1345,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         assertArrayEquals("Get xattr returns unexpected value", value2, result);
     }
 
-    @Test(expected = FileNotFoundHimeraFsException.class)
+    @Test(expected = NoXdataChimeraException.class)
     public void tesGetXattrNoSet() throws Exception {
 
         FsInode dir = _fs.mkdir("/test");
@@ -1380,7 +1380,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         assertEquals("Unexpected number of attributes", 1, xattrs.size());
     }
 
-    @Test(expected = FileNotFoundHimeraFsException.class)
+    @Test(expected = NoXdataChimeraException.class)
     public void tesRemoveXattrNoAttrs() throws Exception {
 
         FsInode dir = _fs.mkdir("/test");

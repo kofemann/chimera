@@ -1813,7 +1813,7 @@ public class FsSqlDriver {
                     },
                     inode.ino(), attr);
         } catch (EmptyResultDataAccessException e) {
-            throw new FileNotFoundHimeraFsException("No such attribute");
+            throw new NoXdataChimeraException(attr);
         }
     }
 
@@ -1835,7 +1835,7 @@ public class FsSqlDriver {
                 int n = _jdbc.update("UPDATE t_xattr SET ivalue = ? WHERE  inumber = ? AND ikey = ?",
                         value, inode.ino(), attr);
                 if (n == 0) {
-                    throw new FileNotFoundHimeraFsException("No such attribute");
+                    throw new NoXdataChimeraException(attr);
                 }
                 break;
             }
@@ -1875,7 +1875,7 @@ public class FsSqlDriver {
     void removeXattr(FsInode inode, String attr) throws ChimeraFsException {
         int n = _jdbc.update("DELETE FROM t_xattr WHERE inumber=? and ikey=?", inode.ino(), attr);
         if (n == 0) {
-            throw new FileNotFoundHimeraFsException("No such attribute");
+            throw new NoXdataChimeraException(attr);
         }
     }
 }
