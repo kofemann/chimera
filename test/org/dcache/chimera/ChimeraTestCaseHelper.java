@@ -11,6 +11,7 @@ import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -22,6 +23,11 @@ public abstract class ChimeraTestCaseHelper {
     protected FileSystemProvider _fs;
     protected FsInode _rootInode;
     protected HikariDataSource _dataSource;
+
+    @BeforeClass
+    public static void setUpClass() {
+        System.setProperty("hazelcast.logging.type","slf4j");
+    }
 
     @Before
     public void setUp() throws Exception {
