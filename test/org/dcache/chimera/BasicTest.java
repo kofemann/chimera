@@ -1287,7 +1287,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
     }
 
     @Test(expected = FileExistsChimeraFsException.class)
-    public void testExclusiveCrateXattr() throws Exception {
+    public void testExclusiveCreateXattr() throws Exception {
 
         FsInode dir = _fs.mkdir("/test");
         FsInode inode = _fs.createFile(dir, "aFile");
@@ -1317,7 +1317,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         String key = "attr1";
         byte[] value1 = "cat".getBytes(StandardCharsets.UTF_8);
-        byte[] value2 = "cat".getBytes(StandardCharsets.UTF_8);
+        byte[] value2 = "cat2".getBytes(StandardCharsets.UTF_8);
         _fs.setXattr(inode, key, value1, SetXattrMode.CREATE);
         _fs.setXattr(inode, key, value2, SetXattrMode.REPLACE);
         byte[] result = _fs.getXattr(inode, key);
@@ -1333,7 +1333,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         String key = "attr1";
         byte[] value1 = "cat".getBytes(StandardCharsets.UTF_8);
-        byte[] value2 = "cat".getBytes(StandardCharsets.UTF_8);
+        byte[] value2 = "cat2".getBytes(StandardCharsets.UTF_8);
         _fs.setXattr(inode, key, value1, SetXattrMode.EITHER);
         byte[] result = _fs.getXattr(inode, key);
 

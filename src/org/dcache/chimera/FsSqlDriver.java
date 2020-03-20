@@ -1840,7 +1840,7 @@ public class FsSqlDriver {
                 break;
             }
             case EITHER: {
-                int n = _jdbc.update("update t_xattr SET ivalue = ? WHERE  inumber = ? AND ikey = ?",
+                int n = _jdbc.update("UPDATE t_xattr SET ivalue = ? WHERE  inumber = ? AND ikey = ?",
                         value, inode.ino(), attr);
                 if (n == 0) {
                     _jdbc.update("INSERT INTO t_xattr (inumber, ikey, ivalue) VALUES (?,?,?)",
