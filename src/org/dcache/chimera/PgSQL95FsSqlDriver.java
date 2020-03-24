@@ -19,11 +19,13 @@ package org.dcache.chimera;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.IncorrectUpdateSemanticsDataAccessException;
 
 import javax.sql.DataSource;
 
 import java.sql.Timestamp;
 
+import org.dcache.chimera.posix.Stat;
 import org.dcache.chimera.store.InodeStorageInformation;
 
 /**
@@ -46,6 +48,55 @@ public class PgSQL95FsSqlDriver extends PgSQLFsSqlDriver {
     {
         super(dataSource);
         _log.info("Running PostgreSQL >= 9.5 specific Driver");
+    }
+
+
+    protected FsInode createInodeInParent(FsInode parent, String name, String id, int owner, int group, int mode, int type,
+                                          int nlink, long size) {
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+
+        Long inumber =
+                _jdbc.query("SELECT f_create_inode95(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            cs -> {
+                                cs.setLong(1, parent.ino());
+                                cs.setString(2, name);
+                                cs.setString(3, id);
+                                cs.setInt(4, type);
+                                cs.setInt(5, mode & UnixPermission.S_PERMS);
+                                cs.setInt(6, nlink);
+                                cs.setInt(7, owner);
+                                cs.setInt(8, group);
+                                cs.setLong(9, size);
+                                cs.setInt(10, _ioMode);
+                                cs.setTimestamp(11, now);
+                            },
+                            rs -> rs.next() ? rs.getLong(1) : null);
+
+        if (inumber == null) {
+            throw new IncorrectUpdateSemanticsDataAccessException("f_create_inode failed to return an inumber.");
+        }
+
+        if (inumber == -1L) {
+            throw new DuplicateKeyException("File exists");
+        }
+
+        Stat stat = new Stat();
+        stat.setIno(inumber);
+        stat.setId(id);
+        stat.setCrTime(now.getTime());
+        stat.setGeneration(0);
+        stat.setSize(size);
+        stat.setATime(now.getTime());
+        stat.setCTime(now.getTime());
+        stat.setMTime(now.getTime());
+        stat.setUid(owner);
+        stat.setGid(group);
+        stat.setMode(mode & UnixPermission.S_PERMS | type);
+        stat.setNlink(nlink);
+        stat.setDev(17);
+        stat.setRdev(13);
+
+        return new FsInode(parent.getFs(), inumber, FsInodeType.INODE, 0, stat);
     }
 
 
