@@ -42,6 +42,7 @@ public class FsInode_TAG extends FsInode {
             for (String tag : list) {
                 if (tag.equals(_tag)) {
                     rc = true;
+                    break;
                 }
             }
         } catch (Exception e) {

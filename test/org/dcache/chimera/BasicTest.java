@@ -874,7 +874,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
                 AccessMask.ADD_FILE.getValue(), Who.USER, 1001));
 
         _fs.setACL(dirInode, aces);
-        _fs.setACL(dirInode, new ArrayList<ACE>() );
+        _fs.setACL(dirInode, new ArrayList<>() );
         assertTrue(_fs.getACL(dirInode).isEmpty());
     }
 

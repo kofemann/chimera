@@ -110,7 +110,7 @@ public class FsSqlDriver {
      */
     protected FsSqlDriver(DataSource dataSource) throws ChimeraFsException
     {
-        _ioMode = Boolean.valueOf(System.getProperty("chimera.inodeIoMode")) ? IOMODE_ENABLE : IOMODE_DISABLE;
+        _ioMode = Boolean.parseBoolean(System.getProperty("chimera.inodeIoMode")) ? IOMODE_ENABLE : IOMODE_DISABLE;
         _jdbc = new JdbcTemplate(dataSource);
         _jdbc.setExceptionTranslator(new SQLErrorCodeSQLExceptionTranslator(dataSource) {
             @Override
@@ -944,9 +944,7 @@ public class FsSqlDriver {
     List<StorageLocatable> getInodeLocations(FsInode inode) {
         return _jdbc.query("SELECT itype,ilocation,ipriority,ictime,iatime FROM t_locationinfo " +
                            "WHERE inumber=? AND istate=1 ORDER BY ipriority DESC",
-                           ps -> {
-                               ps.setLong(1, inode.ino());
-                           },
+                           ps -> ps.setLong(1, inode.ino()),
                            (rs, rowNum) -> {
                                int type = rs.getInt("itype");
                                long ctime = rs.getTimestamp("ictime").getTime();
@@ -1022,16 +1020,14 @@ public class FsSqlDriver {
     String[] tags(FsInode inode) {
         List<String> tags = _jdbc.queryForList("SELECT itagname FROM t_tags where inumber=?",
                                                String.class, inode.ino());
-        return tags.toArray(new String[tags.size()]);
+        return tags.toArray(new String[0]);
     }
 
     Map<String,byte[]> getAllTags(FsInode inode) {
         Map<String,byte[]> tags = new HashMap<>();
         _jdbc.query("SELECT t.itagname, i.ivalue, i.isize " +
                     "FROM t_tags t JOIN t_tags_inodes i ON t.itagid = i.itagid WHERE t.inumber=?",
-                    ps -> {
-                        ps.setLong(1, inode.ino());
-                    },
+                    ps -> ps.setLong(1, inode.ino()),
                     rs -> {
                         try (InputStream in = rs.getBinaryStream("ivalue")) {
                             byte[] data = new byte[Ints.saturatedCast(rs.getLong("isize"))];
@@ -1808,9 +1804,7 @@ public class FsSqlDriver {
     byte[] getXattr(FsInode inode, String attr) throws ChimeraFsException {
         try {
             return _jdbc.queryForObject("SELECT ivalue FROM t_xattr WHERE inumber=? and ikey=?",
-                    (rs, rn) -> {
-                        return rs.getBytes("ivalue");
-                    },
+                    (rs, rn) -> rs.getBytes("ivalue"),
                     inode.ino(), attr);
         } catch (EmptyResultDataAccessException e) {
             throw new NoXdataChimeraException(attr);
@@ -1859,9 +1853,7 @@ public class FsSqlDriver {
      */
     List<String> listXattrs(FsInode inode) throws ChimeraFsException {
         return _jdbc.query("SELECT ikey FROM t_xattr where inumber=?",
-                (rs, rn) -> {
-                    return rs.getString("ikey");
-                },
+                (rs, rn) -> rs.getString("ikey"),
                 inode.ino());
     }
 

@@ -110,7 +110,7 @@ public enum AccessMask {
     private final int _value;
     private final char _label;
 
-    private AccessMask(int value, char abbreviation) {
+    AccessMask(int value, char abbreviation) {
         _value = value;
         _label = abbreviation;
     }

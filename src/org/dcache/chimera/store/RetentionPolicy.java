@@ -24,7 +24,7 @@ public enum RetentionPolicy {
 
     private final int _id;
 
-    private RetentionPolicy(int id) {
+    RetentionPolicy(int id) {
         _id = id;
     }
 

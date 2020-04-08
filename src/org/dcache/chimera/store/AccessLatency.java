@@ -23,7 +23,7 @@ public enum AccessLatency {
 
     private final int _id;
 
-    private AccessLatency(int id) {
+    AccessLatency(int id) {
         _id = id;
     }
 

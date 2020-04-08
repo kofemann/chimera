@@ -44,7 +44,7 @@ public enum AceType {
         }
     }
 
-    private AceType(int value, String abbreviation) {
+    AceType(int value, String abbreviation) {
         _value = value;
         _abbreviation = abbreviation;
     }
