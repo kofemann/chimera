@@ -18,27 +18,32 @@ package org.dcache.chimera;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.IncorrectUpdateSemanticsDataAccessException;
+import org.springframework.dao.DuplicateKeyException;
 
+import java.io.File;
+import java.sql.ResultSet;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
 import javax.sql.DataSource;
 
-import java.sql.Timestamp;
-
+import org.dcache.acl.enums.AceFlags;
+import org.dcache.acl.enums.RsType;
 import org.dcache.chimera.posix.Stat;
 import org.dcache.chimera.store.InodeStorageInformation;
 
 /**
  * PostgreSQL 9.5 and later specific
- *
- *
  */
-public class PgSQL95FsSqlDriver extends PgSQLFsSqlDriver {
+public class PgSQL95FsSqlDriver extends FsSqlDriver {
 
     /**
      * logger
      */
-    private static final Logger _log = LoggerFactory.getLogger(PgSQL95FsSqlDriver.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(PgSQL95FsSqlDriver.class);
 
     /**
      *  this is a utility class which is issues SQL queries on database
@@ -47,7 +52,7 @@ public class PgSQL95FsSqlDriver extends PgSQLFsSqlDriver {
     public PgSQL95FsSqlDriver(DataSource dataSource) throws ChimeraFsException
     {
         super(dataSource);
-        _log.info("Running PostgreSQL >= 9.5 specific Driver");
+        LOGGER.info("Running PostgreSQL >= 9.5 specific Driver");
     }
 
 
@@ -99,7 +104,6 @@ public class PgSQL95FsSqlDriver extends PgSQLFsSqlDriver {
         return new FsInode(parent.getFs(), inumber, FsInodeType.INODE, 0, stat);
     }
 
-
     @Override
     void createEntryInParent(FsInode parent, String name, FsInode inode) {
         int n = _jdbc.update("INSERT INTO t_dirs (iparent, iname, ichild) VALUES(?,?,?) ON CONFLICT ON CONSTRAINT t_dirs_pkey DO NOTHING",
@@ -116,6 +120,139 @@ public class PgSQL95FsSqlDriver extends PgSQLFsSqlDriver {
              */
             throw new DuplicateKeyException("Entry already exists");
         }
+    }
+
+    @Override
+    boolean removeInodeIfUnlinked(FsInode inode)
+    {
+        return _jdbc.update("DELETE FROM t_inodes WHERE inumber=? AND inlink = 0", inode.ino()) > 0;
+    }
+
+    /**
+     * Returns a normalized path string for the given path. The
+     * normalized string uses the slash character as a path separator,
+     * it does not have a leading slash (i.e. it is relative), and it
+     * has no empty path elements.
+     */
+    private String normalizePath(String path) {
+        File file = new File(path);
+        List<String> elements = new ArrayList<>();
+        do {
+            String fileName = file.getName();
+            if (!fileName.isEmpty()) {
+                /*
+                 * skip multiple '/'
+                 */
+                elements.add(fileName);
+            }
+
+            file = file.getParentFile();
+        } while (file != null);
+
+        StringBuilder normalizedPath = new StringBuilder();
+        if (!elements.isEmpty()) {
+            normalizedPath.append(elements.get(elements.size() - 1));
+            for (int i = elements.size() - 2; i >= 0; i--) {
+                normalizedPath.append('/').append(elements.get(i));
+            }
+        }
+
+        return normalizedPath.toString();
+    }
+
+    /**
+     * get inode of given path starting <i>root</i> inode.
+     * @param root staring point
+     * @param path
+     * @return inode or null if path does not exist.
+     */
+    @Override
+    FsInode path2inode(FsInode root, String path) throws ChimeraFsException
+    {
+        /* Ideally we would use the SQL array type for the second
+         * parameter to inject the path elements, however there is no
+         * easy way to do that with prepared statements. Hence we use
+         * a slash delimited string instead. We cannot use
+         * <code>path</code> as that uses the platform specific path
+         * separator.
+         */
+        String normalizedPath = normalizePath(path);
+        if (normalizedPath.isEmpty()) {
+            return root;
+        }
+
+        return _jdbc.query("SELECT path2inumber(?, ?)",
+                           ps -> {
+                               ps.setLong(1, root.ino());
+                               ps.setString(2, normalizedPath);
+                           },
+                           rs -> {
+                               if (rs.next()) {
+                                   long id = rs.getLong(1);
+                                   if (!rs.wasNull()) {
+                                       return new FsInode(root.getFs(), id);
+                                   }
+                               }
+                               return null;
+                           });
+    }
+
+    @Override
+    List<FsInode> path2inodes(FsInode root, String path) throws ChimeraFsException
+    {
+        /* Ideally we would use the SQL array type for the second
+         * parameter to inject the path elements, however there is no
+         * easy way to do that with prepared statements. Hence we use
+         * a slash delimited string instead. We cannot use
+         * <code>path</code> as that uses the platform specific path
+         * separator.
+         */
+        String normalizedPath = normalizePath(path);
+
+        if (normalizedPath.isEmpty()) {
+            return Collections.singletonList(root);
+        }
+
+        return _jdbc.query(
+                "SELECT inumber,ipnfsid,isize,inlink,itype,imode,iuid,igid,iatime,ictime,imtime from path2inodes(?, ?)",
+                ps -> {
+                    ps.setLong(1, root.ino());
+                    ps.setString(2, normalizedPath);
+                },
+                (rs, rowNum) -> {
+                    FsInode inode = new FsInode(root.getFs(), rs.getLong("inumber"));
+                    Stat stat = new Stat();
+                    stat.setIno(rs.getLong("inumber"));
+                    stat.setId(rs.getString("ipnfsid"));
+                    stat.setSize(rs.getLong("isize"));
+                    stat.setATime(rs.getTimestamp("iatime").getTime());
+                    stat.setCTime(rs.getTimestamp("ictime").getTime());
+                    stat.setMTime(rs.getTimestamp("imtime").getTime());
+                    stat.setUid(rs.getInt("iuid"));
+                    stat.setGid(rs.getInt("igid"));
+                    stat.setMode(rs.getInt("imode") | rs.getInt("itype"));
+                    stat.setNlink(rs.getInt("inlink"));
+                    stat.setDev(17);
+                    inode.setStatCache(stat);
+                    return inode;
+                });
+    }
+
+    @Override
+    void copyAcl(FsInode source, FsInode inode, RsType type, EnumSet<AceFlags> mask, EnumSet<AceFlags> flags) {
+        int msk = mask.stream().mapToInt(AceFlags::getValue).reduce(0, (a, b) -> a | b);
+        int flgs = flags.stream().mapToInt(AceFlags::getValue).reduce(0, (a, b) -> a | b);
+        _jdbc.update("INSERT INTO t_acl (inumber,rs_type,type,flags,access_msk,who,who_id,ace_order) " +
+                     "SELECT ?, ?, type, (flags | ?) # ?, access_msk, who, who_id, ace_order " +
+                     "FROM t_acl WHERE inumber = ? AND ((flags & ?) > 0)",
+                     ps -> {
+                         ps.setLong(1, inode.ino());
+                         ps.setInt(2, type.getValue());
+                         ps.setInt(3, msk);
+                         ps.setInt(4, msk);
+                         ps.setLong(5, source.ino());
+                         ps.setInt(6, flgs);
+                     });
     }
 
     /**
@@ -139,6 +276,49 @@ public class PgSQL95FsSqlDriver extends PgSQLFsSqlDriver {
                          ps.setTimestamp(6, now);
                          ps.setInt(7, 1); // online
                      });
+    }
+
+    @Override
+    void copyTags(FsInode orign, FsInode destination) {
+        _jdbc.queryForList("INSERT INTO t_tags (inumber,itagid,isorign,itagname) (SELECT ?,itagid,0,itagname FROM t_tags WHERE inumber=?) RETURNING itagid",
+                Long.class, destination.ino(), orign.ino()).
+                forEach(tagId -> {
+                    _jdbc.update("UPDATE t_tags_inodes SET inlink = inlink + 1 WHERE itagid=?", tagId);
+                });
+    }
+
+    @Override
+    void removeTag(FsInode dir) {
+        _jdbc.queryForList("DELETE FROM t_tags WHERE inumber=? RETURNING itagid", Long.class, dir.ino())
+                .forEach(tagId -> {
+                    // shortcut: delete right away, if there is only one reference left
+                    int n = _jdbc.update("DELETE FROM t_tags_inodes WHERE itagid=? AND inlink = 1", tagId);
+                    // if delete didn't happen, then just indicate that one reference in gone
+                    if (n == 0) {
+                        _jdbc.update("UPDATE t_tags_inodes SET inlink = inlink - 1 WHERE itagid=?", tagId);
+                    }
+                });
+    }
+
+    @Override
+    void removeTag(FsInode dir, String tag) {
+
+        Long tagId = _jdbc.query("DELETE FROM t_tags WHERE inumber=? AND itagname=? RETURNING *",
+                ps -> {
+                    ps.setLong(1, dir.ino());
+                    ps.setString(2, tag);
+                },
+                (ResultSet rs) ->  rs.next() ? rs.getLong("itagid") : null);
+
+        // TODO: explore a possibility to perform DELETE+UPDATE with single query
+        if (tagId != null) {
+            // shortcut: delete right away, if there is only one reference left
+            int n = _jdbc.update("DELETE FROM t_tags_inodes WHERE itagid=? AND inlink = 1", tagId);
+            // if delete didn't happen, then just indicate that one reference in gone
+            if (n == 0) {
+                _jdbc.update("UPDATE t_tags_inodes SET inlink = inlink - 1 WHERE itagid=?", tagId);
+            }
+        }
     }
 
     @Override
@@ -170,7 +350,7 @@ public class PgSQL95FsSqlDriver extends PgSQLFsSqlDriver {
         switch (mode) {
             case CREATE: {
                 int n = _jdbc.update("INSERT INTO t_xattr (inumber, ikey, ivalue) VALUES (?,?,?)" +
-                        "ON CONFLICT ON CONSTRAINT i_xattr_pkey DO NOTHING",
+                                "ON CONFLICT ON CONSTRAINT i_xattr_pkey DO NOTHING",
                         inode.ino(), attr, value);
                 if (n == 0) {
                     throw new FileExistsChimeraFsException();
@@ -192,4 +372,5 @@ public class PgSQL95FsSqlDriver extends PgSQLFsSqlDriver {
             }
         }
     }
+
 }
