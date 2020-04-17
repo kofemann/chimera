@@ -1,16 +1,12 @@
 package org.dcache.chimera.store;
 
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
 
 import java.io.Serializable;
-import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Strings.padStart;
 import static org.dcache.chimera.store.ChecksumType.ADLER32;
+import static java.util.Objects.requireNonNull;
 
 public class Checksum  implements Serializable
 {
@@ -47,8 +43,8 @@ public class Checksum  implements Serializable
      */
     public Checksum(ChecksumType type, String value)
     {
-        checkNotNull(type, "type may not be null");
-        checkNotNull(value, "value may not be null");
+        requireNonNull(type, "type may not be null");
+        requireNonNull(value, "value may not be null");
 
         this.type = type;
         this.value = normalise(value);
@@ -133,7 +129,7 @@ public class Checksum  implements Serializable
 
     public static String bytesToHexString(byte[] bytes)
     {
-        checkNotNull(bytes, "byte array may not be null");
+        requireNonNull(bytes, "byte array may not be null");
 
         StringBuilder sb = new StringBuilder();
         for (byte aByte : bytes) {
@@ -168,7 +164,7 @@ public class Checksum  implements Serializable
      */
     public static Checksum parseChecksum(String digest)
     {
-        checkNotNull(digest, "value may not be null");
+        requireNonNull(digest, "value may not be null");
 
         int del = digest.indexOf(DELIMITER);
         if (del < 1) {
