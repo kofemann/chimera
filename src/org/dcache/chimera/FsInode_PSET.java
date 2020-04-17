@@ -16,8 +16,7 @@
  */
 package org.dcache.chimera;
 
-import com.google.common.base.Charsets;
-
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
@@ -101,7 +100,7 @@ public class FsInode_PSET extends FsInode {
             sb.append(arg).append(':');
         }
 
-        return byteBase(sb.toString().getBytes(Charsets.UTF_8));
+        return byteBase(sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     @Override

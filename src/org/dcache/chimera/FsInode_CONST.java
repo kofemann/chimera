@@ -16,8 +16,9 @@
  */
 package org.dcache.chimera;
 
-import com.google.common.base.Charsets;
 import org.dcache.chimera.posix.Stat;
+
+import java.nio.charset.StandardCharsets;
 
 public class FsInode_CONST extends FsInode {
 
@@ -29,7 +30,7 @@ public class FsInode_CONST extends FsInode {
         StringBuilder sb = new StringBuilder(_title);
         sb.append("\n").append(_fs.getInfo()).append("\n");
 
-        _version = sb.toString().getBytes(Charsets.UTF_8);
+        _version = sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     @Override

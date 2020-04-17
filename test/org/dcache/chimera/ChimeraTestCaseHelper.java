@@ -15,8 +15,11 @@ import org.junit.BeforeClass;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.util.Properties;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public abstract class ChimeraTestCaseHelper {
 
@@ -33,7 +36,7 @@ public abstract class ChimeraTestCaseHelper {
     public void setUp() throws Exception {
 
         Properties dbProperties = new Properties();
-        dbProperties.load(new FileReader("chimera-test.properties"));
+        dbProperties.load(new FileReader("chimera-test.properties", UTF_8));
 
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(dbProperties.getProperty("chimera.db.url"));
