@@ -24,7 +24,7 @@ public class Checksum  implements Serializable
 
     /**
      * Creates a new instance of Checksum.
-     * @throws IllegalArugmentException if the number of bytes in value is
+     * @throws IllegalArgumentException if the number of bytes in value is
      * incorrect for the supplied type
      * @throws NullPointerException if either argument is null
      */
@@ -37,7 +37,7 @@ public class Checksum  implements Serializable
      * Creates a new instance of Checksum based on supplied type and a
      * string of the checksum value in hexadecimal.  If the type is ADLER32
      * then the value may omit any leading zeros.
-     * @throws IllegalArugmentException if the value is inappropriate for
+     * @throws IllegalArgumentException if the value is inappropriate for
      * the supplied checksum type.
      * @throws NullPointerException if either argument is null
      */
