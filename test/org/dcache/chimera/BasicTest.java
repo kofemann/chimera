@@ -50,9 +50,8 @@ public class BasicTest extends ChimeraTestCaseHelper {
     @Test
     public void testLs() throws Exception {
 
-        List<HimeraDirectoryEntry> list = DirectoryStreamHelper.listOf(_rootInode);
-        assertTrue("Root Dir cant be empty", list.size() > 0);
-
+        long count = DirectoryStreamHelper.streamOf(_rootInode).count();
+        assertTrue("Root Dir cant be empty", count > 0L);
     }
 
     @Test

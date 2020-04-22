@@ -31,25 +31,6 @@ public class DirectoryStreamHelper {
     private static final Logger _log = LoggerFactory.getLogger(DirectoryStreamHelper.class);
 
     /**
-     * Returns a {@link List} of {@link HimeraDirectoryEntry} in the directory {@code inode}.
-     * @param inode of a directory to be listed
-     * @return a list of {@link HimeraDirectoryEntry}
-     * @throws IOException
-     */
-    public static List<HimeraDirectoryEntry> listOf(FsInode inode) throws IOException, IOHimeraFsException {
-
-        int estimatedListSize = inode.statCache().getNlink();
-        if (estimatedListSize < 0) {
-            throw new RuntimeException("Invalid nlink count for directory: " + inode);
-        }
-
-        try (DirectoryStreamB<HimeraDirectoryEntry> dirStream =
-                inode.newDirectoryStream()) {
-            return dirStream.stream().collect(Collectors.toList());
-        }
-    }
-
-    /**
      * Returns a {@link Stream} of {@link HimeraDirectoryEntry} in the directory {@code inode}.
      *
      *  After this method returns, then any subsequent I/O exception that occurs while listing the directory is wrapped
