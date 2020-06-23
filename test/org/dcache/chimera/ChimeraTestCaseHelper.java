@@ -1,6 +1,5 @@
 package org.dcache.chimera;
 
-import com.hazelcast.core.Hazelcast;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.FileReader;
@@ -11,7 +10,6 @@ import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -26,11 +24,6 @@ public abstract class ChimeraTestCaseHelper {
     protected FileSystemProvider _fs;
     protected FsInode _rootInode;
     protected HikariDataSource _dataSource;
-
-    @BeforeClass
-    public static void setUpClass() {
-        System.setProperty("hazelcast.logging.type","slf4j");
-    }
 
     @Before
     public void setUp() throws Exception {
@@ -58,7 +51,7 @@ public abstract class ChimeraTestCaseHelper {
         }
 
         PlatformTransactionManager txManager =  new DataSourceTransactionManager(_dataSource);
-        _fs = new JdbcFs(_dataSource, txManager,  Hazelcast.newHazelcastInstance());
+        _fs = new JdbcFs(_dataSource, txManager);
         _rootInode = _fs.path2inode("/");
     }
 
@@ -68,7 +61,6 @@ public abstract class ChimeraTestCaseHelper {
         conn.createStatement().execute("SHUTDOWN;");
         _dataSource.close();
         _fs.close();
-        Hazelcast.shutdownAll();
     }
 
 }
