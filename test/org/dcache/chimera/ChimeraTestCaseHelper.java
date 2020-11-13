@@ -10,6 +10,8 @@ import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.BeforeClass;
+import org.slf4j.bridge.SLF4JBridgeHandler;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -24,6 +26,13 @@ public abstract class ChimeraTestCaseHelper {
     protected FileSystemProvider _fs;
     protected FsInode _rootInode;
     protected HikariDataSource _dataSource;
+
+    @BeforeClass
+    public static void initClass() {
+        // redirect java.util.logging used by liquibase
+        SLF4JBridgeHandler.removeHandlersForRootLogger();
+        SLF4JBridgeHandler.install();
+    }
 
     @Before
     public void setUp() throws Exception {
