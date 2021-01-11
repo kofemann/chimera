@@ -224,26 +224,21 @@ public class FsSqlDriver {
      * @return
      */
     DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir) {
-        return new DirectoryStreamB<HimeraDirectoryEntry>()
-        {
+        return new DirectoryStreamB<>() {
             final DirectoryStreamImpl stream = new DirectoryStreamImpl(dir, _jdbc);
 
             @Override
-            public Iterator<HimeraDirectoryEntry> iterator()
-            {
-                return new Iterator<HimeraDirectoryEntry>()
-                {
+            public Iterator<HimeraDirectoryEntry> iterator() {
+                return new Iterator<HimeraDirectoryEntry>() {
                     private HimeraDirectoryEntry current = innerNext();
 
                     @Override
-                    public boolean hasNext()
-                    {
+                    public boolean hasNext() {
                         return current != null;
                     }
 
                     @Override
-                    public HimeraDirectoryEntry next()
-                    {
+                    public HimeraDirectoryEntry next() {
                         if (current == null) {
                             throw new NoSuchElementException("No more entries");
                         }
@@ -252,8 +247,7 @@ public class FsSqlDriver {
                         return entry;
                     }
 
-                    protected HimeraDirectoryEntry innerNext()
-                    {
+                    protected HimeraDirectoryEntry innerNext() {
                         try {
                             ResultSet rs = stream.next();
                             if (rs == null) {
@@ -272,8 +266,7 @@ public class FsSqlDriver {
             }
 
             @Override
-            public void close() throws IOException
-            {
+            public void close() throws IOException {
                 stream.close();
             }
         };
@@ -1620,24 +1613,22 @@ public class FsSqlDriver {
      */
     void writeAcl(FsInode inode, RsType rsType, List<ACE> acl) {
         _jdbc.batchUpdate("INSERT INTO t_acl (inumber,rs_type,type,flags,access_msk,who,who_id,ace_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", acl, acl.size(),
-                          new ParameterizedPreparedStatementSetter<ACE>()
-                          {
-                              int order = 0;
+                new ParameterizedPreparedStatementSetter<>() {
+                    int order = 0;
 
-                              @Override
-                              public void setValues(PreparedStatement ps, ACE ace) throws SQLException
-                              {
-                                  ps.setLong(1, inode.ino());
-                                  ps.setInt(2, rsType.getValue());
-                                  ps.setInt(3, ace.getType().getValue());
-                                  ps.setInt(4, ace.getFlags());
-                                  ps.setInt(5, ace.getAccessMsk());
-                                  ps.setInt(6, ace.getWho().getValue());
-                                  ps.setInt(7, ace.getWhoID());
-                                  ps.setInt(8, order);
-                                  order++;
-                              }
-                          });
+                    @Override
+                    public void setValues(PreparedStatement ps, ACE ace) throws SQLException {
+                        ps.setLong(1, inode.ino());
+                        ps.setInt(2, rsType.getValue());
+                        ps.setInt(3, ace.getType().getValue());
+                        ps.setInt(4, ace.getFlags());
+                        ps.setInt(5, ace.getAccessMsk());
+                        ps.setInt(6, ace.getWho().getValue());
+                        ps.setInt(7, ace.getWhoID());
+                        ps.setInt(8, order);
+                        order++;
+                    }
+                });
     }
 
     boolean deleteAcl(FsInode inode) {

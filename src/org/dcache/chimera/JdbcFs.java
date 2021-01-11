@@ -125,13 +125,13 @@ public class JdbcFs implements FileSystemProvider {
             = CacheBuilder.newBuilder()
                 .refreshAfterWrite(100, TimeUnit.MILLISECONDS)
                 .build(
-                    CacheLoader.asyncReloading(new CacheLoader<Object, FsStat>() {
+                    CacheLoader.asyncReloading(new CacheLoader<>() {
 
-                        @Override
-                        public FsStat load(Object k) throws Exception {
-                            return JdbcFs.this.getFsStat0();
-                        }
-                    }
+                                                   @Override
+                                                   public FsStat load(Object k) throws Exception {
+                                                       return JdbcFs.this.getFsStat0();
+                                                   }
+                                               }
             , _fsStatUpdateExecutor));
 
     /* The PNFS ID to inode number mapping will never change while dCache is running.  */
