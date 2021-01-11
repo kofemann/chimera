@@ -1,8 +1,5 @@
 package org.dcache.acl.enums;
 
-import java.util.HashMap;
-import java.util.Map;
-
 /**
  * This object consists of a enumeration (implemented as bit mask) of possible
  * access permissions.
@@ -97,15 +94,6 @@ public enum AccessMask {
      * Permission to write the owner and owner_group attributes.
      */
     SYNCHRONIZE(0x00100000, 'y'); // 0001 0000 0000 0000 0000 0000
-
-    // ALL ALLOWED: 11111111111111111111 = FFFFF = 1048575
-
-    private final static Map<Character, AccessMask> _values = new HashMap<>();
-    static {
-        for(AccessMask mask: AccessMask.values()) {
-            _values.put(mask.getLabel(), mask);
-        }
-    }
 
     private final int _value;
     private final char _label;
