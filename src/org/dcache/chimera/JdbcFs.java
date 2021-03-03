@@ -201,7 +201,7 @@ public class JdbcFs implements FileSystemProvider {
             throw new BackEndErrorHimeraFsException(e.getMessage(), e);
         } catch (DataAccessException e) {
             rollbackOnException(status, e);
-            throw new IOHimeraFsException(e.getMessage(), e);
+            throw new ChimeraFsException(e.getMessage(), e);
         } catch (Exception e) {
             rollbackOnException(status, e);
             throw e;
@@ -461,7 +461,7 @@ public class JdbcFs implements FileSystemProvider {
     }
 
     @Override
-    public DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir) throws IOHimeraFsException {
+    public DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir) throws ChimeraFsException {
         return _sqlDriver.newDirectoryStream(dir);
     }
 

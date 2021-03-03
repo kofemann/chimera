@@ -43,7 +43,7 @@ public class DirectoryStreamHelper {
      * @return a stream of {@link HimeraDirectoryEntry}
      * @throws IOException
      */
-    public static Stream<HimeraDirectoryEntry> streamOf(FsInode inode) throws IOException, IOHimeraFsException {
+    public static Stream<HimeraDirectoryEntry> streamOf(FsInode inode) throws IOException, ChimeraFsException {
 
         int estimatedListSize = inode.statCache().getNlink();
         if (estimatedListSize < 0) {
