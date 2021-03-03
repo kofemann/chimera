@@ -124,7 +124,7 @@ public class FsSqlDriver {
         });
         Long root = getInumber("000000000000000000000000000000000000");
         if (root == null) {
-            throw new FileNotFoundHimeraFsException("Root inode does not exist.");
+            throw new FileNotFoundChimeraFsException("Root inode does not exist.");
         }
         _root = root;
     }
@@ -223,14 +223,14 @@ public class FsSqlDriver {
      * @param dir
      * @return
      */
-    DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir) {
+    DirectoryStreamB<ChimeraDirectoryEntry> newDirectoryStream(FsInode dir) {
         return new DirectoryStreamB<>() {
             final DirectoryStreamImpl stream = new DirectoryStreamImpl(dir, _jdbc);
 
             @Override
-            public Iterator<HimeraDirectoryEntry> iterator() {
-                return new Iterator<HimeraDirectoryEntry>() {
-                    private HimeraDirectoryEntry current = innerNext();
+            public Iterator<ChimeraDirectoryEntry> iterator() {
+                return new Iterator<ChimeraDirectoryEntry>() {
+                    private ChimeraDirectoryEntry current = innerNext();
 
                     @Override
                     public boolean hasNext() {
@@ -238,16 +238,16 @@ public class FsSqlDriver {
                     }
 
                     @Override
-                    public HimeraDirectoryEntry next() {
+                    public ChimeraDirectoryEntry next() {
                         if (current == null) {
                             throw new NoSuchElementException("No more entries");
                         }
-                        HimeraDirectoryEntry entry = current;
+                        ChimeraDirectoryEntry entry = current;
                         current = innerNext();
                         return entry;
                     }
 
-                    protected HimeraDirectoryEntry innerNext() {
+                    protected ChimeraDirectoryEntry innerNext() {
                         try {
                             ResultSet rs = stream.next();
                             if (rs == null) {
@@ -256,7 +256,7 @@ public class FsSqlDriver {
                             Stat stat = toStat(rs);
                             FsInode inode = new FsInode(dir.getFs(), rs.getLong("inumber"), FsInodeType.INODE, 0, stat);
                             inode.setParent(dir);
-                            return new HimeraDirectoryEntry(rs.getString("iname"), inode, stat);
+                            return new ChimeraDirectoryEntry(rs.getString("iname"), inode, stat);
                         } catch (SQLException e) {
                             _log.error("failed to fetch next entry: {}", e.getMessage());
                             return null;
@@ -302,7 +302,7 @@ public class FsSqlDriver {
         removeTag(inode);
 
         if (!removeInodeIfUnlinked(inode)) {
-            throw new DirNotEmptyHimeraFsException("directory is not empty");
+            throw new DirNotEmptyChimeraFsException("directory is not empty");
         }
 
         return true;
@@ -1254,7 +1254,7 @@ public class FsSqlDriver {
         Long tagId = getTagId(dir, name);
 
         if (tagId == null) {
-            throw new FileNotFoundHimeraFsException("tag does not exist");
+            throw new FileNotFoundChimeraFsException("tag does not exist");
         }
 
         try {
@@ -1278,7 +1278,7 @@ public class FsSqlDriver {
                                         },
                                         tagId);
         } catch (IncorrectResultSizeDataAccessException e) {
-            throw new FileNotFoundHimeraFsException(name);
+            throw new FileNotFoundChimeraFsException(name);
         }
     }
 
@@ -1329,10 +1329,10 @@ public class FsSqlDriver {
         }
     }
 
-    void setTagOwner(FsInode_TAG tagInode, int newOwner) throws FileNotFoundHimeraFsException {
+    void setTagOwner(FsInode_TAG tagInode, int newOwner) throws FileNotFoundChimeraFsException {
         Long tagId = getTagId(tagInode, tagInode.tagName());
         if (tagId == null) {
-            throw new FileNotFoundHimeraFsException("tag does not exist");
+            throw new FileNotFoundChimeraFsException("tag does not exist");
         }
         _jdbc.update("UPDATE t_tags_inodes SET iuid=?, ictime=? WHERE itagid=?",
                      ps -> {
@@ -1342,10 +1342,10 @@ public class FsSqlDriver {
                      });
     }
 
-    void setTagOwnerGroup(FsInode_TAG tagInode, int newOwner) throws FileNotFoundHimeraFsException {
+    void setTagOwnerGroup(FsInode_TAG tagInode, int newOwner) throws FileNotFoundChimeraFsException {
         Long tagId = getTagId(tagInode, tagInode.tagName());
         if (tagId == null) {
-            throw new FileNotFoundHimeraFsException("tag does not exist");
+            throw new FileNotFoundChimeraFsException("tag does not exist");
         }
         _jdbc.update("UPDATE t_tags_inodes SET igid=?, ictime=? WHERE itagid=?",
                      ps -> {
@@ -1355,10 +1355,10 @@ public class FsSqlDriver {
                      });
     }
 
-    void setTagMode(FsInode_TAG tagInode, int mode) throws FileNotFoundHimeraFsException {
+    void setTagMode(FsInode_TAG tagInode, int mode) throws FileNotFoundChimeraFsException {
         Long tagId = getTagId(tagInode, tagInode.tagName());
         if (tagId == null) {
-            throw new FileNotFoundHimeraFsException("tag does not exist");
+            throw new FileNotFoundChimeraFsException("tag does not exist");
         }
         _jdbc.update("UPDATE t_tags_inodes SET imode=?, ictime=? WHERE itagid=?",
                      ps -> {
@@ -1408,7 +1408,7 @@ public class FsSqlDriver {
                     },
                     inode.ino());
         } catch (IncorrectResultSizeDataAccessException e) {
-            throw new FileNotFoundHimeraFsException(inode.toString());
+            throw new FileNotFoundChimeraFsException(inode.toString());
         }
     }
 

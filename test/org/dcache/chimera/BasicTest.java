@@ -181,7 +181,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         }
     }
 
-    @Test(expected=DirNotEmptyHimeraFsException.class)
+    @Test(expected= DirNotEmptyChimeraFsException.class)
     public void testDeleteNonEmptyDir() throws Exception {
 
         FsInode base = _rootInode.mkdir("junit");
@@ -225,12 +225,12 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
     }
 
-    @Test(expected=FileNotFoundHimeraFsException.class)
+    @Test(expected= FileNotFoundChimeraFsException.class)
     public void testDeleteNonExistingFile() throws Exception {
         _rootInode.remove("testCreateFile");
     }
 
-    @Test(expected = FileNotFoundHimeraFsException.class)
+    @Test(expected = FileNotFoundChimeraFsException.class)
     public void testCreateInNonExistingDir() throws Exception {
         FsInode missingDir = new FsInode(_fs, Long.MAX_VALUE);
         _fs.createFile(missingDir, "aFile");
@@ -568,7 +568,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         assertEquals(n, _fs.listDir(_rootInode).length);
     }
 
-    @Test(expected=DirNotEmptyHimeraFsException.class)
+    @Test(expected= DirNotEmptyChimeraFsException.class)
     public void testRemoveNonEmptyDirById() throws Exception
     {
         FsInode foo = _rootInode.mkdir("foo");
@@ -581,13 +581,13 @@ public class BasicTest extends ChimeraTestCaseHelper {
         _fs.remove(_rootInode);
     }
 
-    @Test(expected=FileNotFoundHimeraFsException.class)
+    @Test(expected= FileNotFoundChimeraFsException.class)
     public void testRemoveNonexistgById() throws Exception {
         FsInode inode = new FsInode(_fs, Long.MAX_VALUE);
         _fs.remove(inode);
     }
 
-    @Test(expected=FileNotFoundHimeraFsException.class)
+    @Test(expected= FileNotFoundChimeraFsException.class)
     public void testRemoveNonexistgByPath() throws Exception {
         FsInode base = _rootInode.mkdir("junit");
         base.remove("notexist");
@@ -609,7 +609,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         assertEquals(n, _fs.listDir(_rootInode).length);
     }
 
-    @Test(expected=DirNotEmptyHimeraFsException.class)
+    @Test(expected= DirNotEmptyChimeraFsException.class)
     public void testRemoveNonEmptyDirByPath() throws Exception
     {
         FsInode foo = _rootInode.mkdir("foo");
@@ -628,7 +628,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         try {
             _fs.addInodeLocation(inode, StorageGenericLocation.DISK, "/dev/null");
             fail("was able to add cache location for non existing file");
-        } catch (FileNotFoundHimeraFsException e) {
+        } catch (FileNotFoundChimeraFsException e) {
             // OK
         }
     }
@@ -643,7 +643,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         _fs.addInodeLocation(fileInode, StorageGenericLocation.DISK, "/dev/null");
     }
 
-    @Test(expected = FileNotFoundHimeraFsException.class)
+    @Test(expected = FileNotFoundChimeraFsException.class)
     public void testSetSizeNotExist() throws Exception {
 
         FsInode inode = new FsInode(_fs, Long.MAX_VALUE);
@@ -653,7 +653,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         _fs.setInodeAttributes(inode, 0, stat);
     }
 
-    @Test(expected = FileNotFoundHimeraFsException.class)
+    @Test(expected = FileNotFoundChimeraFsException.class)
     public void testChowneNotExist() throws Exception {
 
         FsInode inode = new FsInode(_fs, Long.MAX_VALUE);
@@ -669,7 +669,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
             byte[] data = "bla".getBytes();
             _fs.write(inode, 1, 0, data, 0, data.length);
             fail("was able to update level of non existing file");
-        } catch (FileNotFoundHimeraFsException e) {
+        } catch (FileNotFoundChimeraFsException e) {
             // OK
         }
     }
@@ -680,7 +680,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         try {
             _fs.setInodeChecksum(inode, 1, "asum");
             fail("was able to update checksum of non existing file");
-        } catch (FileNotFoundHimeraFsException e) {
+        } catch (FileNotFoundChimeraFsException e) {
             // OK
         }
     }
@@ -875,7 +875,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         assertTrue(_fs.getACL(dirInode).isEmpty());
     }
 
-    @Test(expected=FileNotFoundHimeraFsException.class)
+    @Test(expected= FileNotFoundChimeraFsException.class)
     public void testGetInodeByPathNotExist() throws Exception {
         _fs.path2inode("/some/nonexisting/path");
         fail("Expected exception not thrown");
@@ -913,12 +913,12 @@ public class BasicTest extends ChimeraTestCaseHelper {
 	_fs.rename(src, _rootInode, "testMoveIntoDir", _rootInode, "dir");
     }
 
-    @Test(expected = FileNotFoundHimeraFsException.class)
+    @Test(expected = FileNotFoundChimeraFsException.class)
     public void testMoveNotExists() throws Exception {
         _fs.rename(_rootInode, _rootInode, "foo", _rootInode, "bar");
     }
 
-    @Test(expected = DirNotEmptyHimeraFsException.class)
+    @Test(expected = DirNotEmptyChimeraFsException.class)
     public void testMoveNotEmptyDir() throws Exception {
 
 	FsInode dir1 = _rootInode.mkdir("dir1", 0, 0, 0755);
@@ -1040,7 +1040,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         assertEquals(baseStat, base.stat());
     }
 
-    @Test(expected = FileNotFoundHimeraFsException.class)
+    @Test(expected = FileNotFoundChimeraFsException.class)
     public void testGetParentOnRoot() throws Exception {
         String id = _rootInode.statCache().getId();
         _rootInode.inodeOf(".(parent)(" + id + ")", NO_STAT);
@@ -1051,9 +1051,9 @@ public class BasicTest extends ChimeraTestCaseHelper {
         FsInode inode = _rootInode.mkdir("junit");
 	Stat stat = new Stat();
         inode.setStat(stat); // to bump generation
-        try (DirectoryStreamB<HimeraDirectoryEntry> dirStream = _fs.newDirectoryStream(_rootInode)) {
+        try (DirectoryStreamB<ChimeraDirectoryEntry> dirStream = _fs.newDirectoryStream(_rootInode)) {
 
-            for (HimeraDirectoryEntry entry : dirStream) {
+            for (ChimeraDirectoryEntry entry : dirStream) {
                 if (entry.getName().equals("junit") && entry.getStat().getGeneration() == 1) {
                     return;
                 }

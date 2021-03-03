@@ -84,7 +84,7 @@ public interface FileSystemProvider extends Closeable {
 
     String[] listDir(FsInode dir) throws ChimeraFsException;
 
-    DirectoryStreamB<HimeraDirectoryEntry> newDirectoryStream(FsInode dir)
+    DirectoryStreamB<ChimeraDirectoryEntry> newDirectoryStream(FsInode dir)
             throws ChimeraFsException;
 
     void remove(String path) throws ChimeraFsException;
@@ -229,10 +229,10 @@ public interface FileSystemProvider extends Closeable {
      * @param destDir inode of the destination directory
      * @param dest name of the new file in destDir
      * @return true it underlying filesystem has been changed.
-     * @throws FileNotFoundHimeraFsException if source file does not exists
+     * @throws FileNotFoundChimeraFsException if source file does not exists
      * @throws FileExistsChimeraFsException if destination exists and it not the
      *	    same type as source
-     * @throws DirNotEmptyHimeraFsException if destination exists, is a directory
+     * @throws DirNotEmptyChimeraFsException if destination exists, is a directory
      *	    and not empty
      */
     boolean rename(FsInode inode, FsInode srcDir, String source,

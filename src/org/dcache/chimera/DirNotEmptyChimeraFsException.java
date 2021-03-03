@@ -16,23 +16,30 @@
  */
 package org.dcache.chimera;
 
-/**
- * Backend database failure Exception.
- */
-public class BackEndErrorHimeraFsException extends ChimeraFsException {
+public class DirNotEmptyChimeraFsException extends ChimeraFsException {
 
-    private static final long serialVersionUID = -5719825809029114667L;
+    /**
+     *
+     */
+    private static final long serialVersionUID = 4850649327433452917L;
 
-    public BackEndErrorHimeraFsException() {
-        super("BackEndErrorHimeraFsException");
+    /**
+     * Creates a new instance of <code>DirNotEmptyHimeraFsException</code> without detail message.
+     */
+    public DirNotEmptyChimeraFsException() {
+        super();
     }
 
-    public BackEndErrorHimeraFsException(String msg) {
-        super("BackEndErrorHimeraFsException (" + msg + ")");
+    /**
+     * Constructs an instance of <code>DirNotEmptyHimeraFsException</code> with the specified detail message.
+     * @param msg the detail message.
+     */
+    public DirNotEmptyChimeraFsException(String msg) {
+        super(msg);
     }
 
-    public BackEndErrorHimeraFsException(String msg, Throwable cause)
+    public DirNotEmptyChimeraFsException(String message, Throwable cause)
     {
-        super("BackEndErrorHimeraFsException (" + msg + ")", cause);
+        super(message, cause);
     }
 }

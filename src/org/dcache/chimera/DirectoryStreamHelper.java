@@ -22,8 +22,6 @@ import org.slf4j.LoggerFactory;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.List;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class DirectoryStreamHelper {
@@ -31,7 +29,7 @@ public class DirectoryStreamHelper {
     private static final Logger _log = LoggerFactory.getLogger(DirectoryStreamHelper.class);
 
     /**
-     * Returns a {@link Stream} of {@link HimeraDirectoryEntry} in the directory {@code inode}.
+     * Returns a {@link Stream} of {@link ChimeraDirectoryEntry} in the directory {@code inode}.
      *
      *  After this method returns, then any subsequent I/O exception that occurs while listing the directory is wrapped
      *  in an UncheckedIOException.
@@ -40,17 +38,17 @@ public class DirectoryStreamHelper {
      * close method is invoked after the stream operations are completed.
      *
      * @param inode of a directory to be listed
-     * @return a stream of {@link HimeraDirectoryEntry}
+     * @return a stream of {@link ChimeraDirectoryEntry}
      * @throws IOException
      */
-    public static Stream<HimeraDirectoryEntry> streamOf(FsInode inode) throws IOException, ChimeraFsException {
+    public static Stream<ChimeraDirectoryEntry> streamOf(FsInode inode) throws IOException, ChimeraFsException {
 
         int estimatedListSize = inode.statCache().getNlink();
         if (estimatedListSize < 0) {
             throw new RuntimeException("Invalid nlink count for directory: " + inode);
         }
 
-        DirectoryStreamB<HimeraDirectoryEntry> listStream = inode.newDirectoryStream();
+        DirectoryStreamB<ChimeraDirectoryEntry> listStream = inode.newDirectoryStream();
         return listStream.stream().onClose(uncheckedRunnable(listStream));
     }
 

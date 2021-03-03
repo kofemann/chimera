@@ -16,33 +16,19 @@
  */
 package org.dcache.chimera;
 
-import org.dcache.chimera.posix.Stat;
+public class FileNotFoundChimeraFsException extends ChimeraFsException {
 
-public class HimeraDirectoryEntry {
+    private static final long serialVersionUID = 2898082345212568953L;
 
-    private final String _name;
-    private final Stat _stat;
-    private final FsInode _inode;
-
-    public HimeraDirectoryEntry(String name, FsInode inode) throws ChimeraFsException {
-        this(name, inode, inode.statCache());
+    public FileNotFoundChimeraFsException() {
+        super();
     }
 
-    public HimeraDirectoryEntry(String name, FsInode inode, Stat stat) {
-        _inode = inode;
-        _name = name;
-        _stat = stat;
+    public FileNotFoundChimeraFsException(Throwable cause) {
+        super(null, cause);
     }
 
-    public FsInode getInode() {
-        return _inode;
-    }
-
-    public String getName() {
-        return _name;
-    }
-
-    public Stat getStat() {
-        return _stat;
+    public FileNotFoundChimeraFsException(String path) {
+        super("path [" + path + "] does not exist");
     }
 }
