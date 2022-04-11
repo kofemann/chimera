@@ -371,6 +371,8 @@ public class PgSQL95FsSqlDriver extends FsSqlDriver {
                         inode.ino(), attr, value);
             }
         }
+        // trigger generation update
+        setInodeAttributes(inode, 0, new Stat());
     }
 
 }
