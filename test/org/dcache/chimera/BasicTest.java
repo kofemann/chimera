@@ -214,7 +214,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode base = _rootInode.mkdir("junit");
 
-        base.create("testCreateDir", 0, 0, 0644);
+        base.mkdir("testCreateDir", 0, 0, 0644);
         Stat stat = base.stat();
 
         Thread.sleep(1); // ensure updated directory mtime is distinct from creation mtime
@@ -985,6 +985,34 @@ public class BasicTest extends ChimeraTestCaseHelper {
     public void testStatMissingTag() throws ChimeraFsException {
         var dir = _fs.mkdir(_rootInode, "dir.0", 0, 0, 0755);
         _fs.statTag(dir, "aTag");
+    }
+
+
+    @Test
+    public void testTagDisposal() throws ChimeraFsException, SQLException {
+
+        var tagName = "aTag";
+
+        var dir = _fs.mkdir(_rootInode, "dir.0", 0, 0, 0755);
+        _fs.createTag(dir, tagName);
+
+        FsInode tagInode = new FsInode_TAG(_fs, dir.ino(), tagName);
+        byte[] data = "data".getBytes(UTF_8);
+        tagInode.write(0, data, 0, data.length);
+
+        long tagId = tagInode.stat().getIno();
+
+        try (var conn = _dataSource.getConnection()) {
+            var found = conn.createStatement().executeQuery("SELECT * FROM t_tags_inodes WHERE itagid="+tagId).next();
+            assertTrue("tag inodes is not populated with a new entry", found);
+        }
+
+        _fs.remove(_rootInode, "dir.0", dir);
+
+        try (var conn = _dataSource.getConnection()) {
+            var found = conn.createStatement().executeQuery("SELECT * FROM t_tags_inodes WHERE itagid="+tagId).next();
+            assertFalse("tag is not disposed on last reference removal", found);
+        }
     }
 
     @Test
