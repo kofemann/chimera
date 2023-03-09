@@ -43,9 +43,9 @@ public class CockroachDBFsSqlDriver extends FsSqlDriver {
     }
 
     @Override
-    boolean removeInodeIfUnlinked(FsInode inode)
+    void removeInodeIfUnlinked(FsInode inode)
     {
-        return _jdbc.update("DELETE FROM t_inodes WHERE inumber=? AND inlink = 0", inode.ino()) > 0;
+        _jdbc.update("DELETE FROM t_inodes WHERE inumber=?", inode.ino());
     }
 
     void removeTag(FsInode dir, String tag) {

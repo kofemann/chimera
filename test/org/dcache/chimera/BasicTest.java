@@ -204,7 +204,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         base.remove("testCreateFile");
 
-        assertEquals("remove have to decrease parents link count", base.stat().getNlink(), stat.getNlink() - 1);
+        assertEquals("remove should not decrement parents link count", base.stat().getNlink(), stat.getNlink());
         assertFalse("remove have to update parent's mtime", stat.getMTime() == base.stat().getMTime());
 
     }
@@ -445,7 +445,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         boolean ok = _fs.rename(fileInode, base, "testCreateFile", base, "testCreateFile2");
 
         assertTrue("can't move", ok);
-        assertEquals("link count of base directory should decrease by one", preStatBase.getNlink() - 1, base.stat().getNlink());
+        assertEquals("link count of base directory shouldn't change", preStatBase.getNlink(), base.stat().getNlink());
 
         assertFalse("ghost file", file2Inode.exists());
 
@@ -465,10 +465,10 @@ public class BasicTest extends ChimeraTestCaseHelper {
         boolean ok = _fs.rename(fileInode, base, "testCreateFile", base2, "testCreateFile2");
 
         assertTrue("can't move", ok);
-        assertEquals("link count of source directory should decrese on move out", preStatBase.getNlink() - 1,
+        assertEquals("link count of source directory shouldn't change on move out", preStatBase.getNlink(),
                      base.stat().getNlink());
-        assertEquals("link count of destination directory should increase on move in", preStatBase2.getNlink() + 1, base2.stat().getNlink());
-        assertEquals("link count of file shold not be modified on move", preStatFile.getNlink(),
+        assertEquals("link count of destination directory should change on move in", preStatBase2.getNlink(), base2.stat().getNlink());
+        assertEquals("link count of file should not be modified on move", preStatFile.getNlink(),
                      fileInode.stat().getNlink());
 
     }
@@ -489,7 +489,7 @@ public class BasicTest extends ChimeraTestCaseHelper {
         boolean ok = _fs.rename(fileInode, base, "testCreateFile", base2, "testCreateFile2");
 
         assertTrue("can't move", ok);
-        assertEquals("link count of source directory should decrese on move out", preStatBase.getNlink() - 1,
+        assertEquals("link count of source directory should should not be modified", preStatBase.getNlink(),
                      base.stat().getNlink());
         assertEquals("link count of destination directory should not be modified on replace", preStatBase2.getNlink(), base2.stat().getNlink());
         assertEquals("link count of file shold not be modified on move", preStatFile.getNlink(), fileInode.stat().getNlink());
@@ -1469,5 +1469,14 @@ public class BasicTest extends ChimeraTestCaseHelper {
         try (var s = _fs.newDirectoryStream(dir)) {
             return s.stream().count();
         }
+    }
+
+    @Test
+    public void testNlinkCountOfNewDir() throws Exception {
+
+        int parentNlink = _rootInode.stat().getNlink();
+        FsInode newDir = _rootInode.mkdir("junit", 1, 2, 0755);
+        assertEquals(parentNlink + 1, _rootInode.stat().getNlink());
+        assertEquals(2, newDir.stat().getNlink());
     }
 }

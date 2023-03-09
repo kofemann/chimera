@@ -19,13 +19,16 @@ package org.dcache.chimera;
 import com.google.common.collect.Lists;
 import com.google.common.io.ByteStreams;
 import com.google.common.primitives.Ints;
+import java.sql.Savepoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.jdbc.JdbcUpdateAffectedIncorrectNumberOfRowsException;
 import org.springframework.jdbc.LobRetrievalFailureException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ParameterizedPreparedStatementSetter;
 import org.springframework.jdbc.core.ResultSetExtractor;
@@ -279,15 +282,14 @@ public class FsSqlDriver {
             return false;
         }
 
-        // A directory contains two pseudo entries for '.' and '..'
-        decNlink(inode, 2);
-
         // ensure that t_inodes and t_tags_inodes update in the same order as
         // in mkdir
         decNlink(parent);
         removeTag(inode);
 
-        if (!removeInodeIfUnlinked(inode)) {
+        try {
+            removeInodeIfUnlinked(inode);
+        } catch (DataIntegrityViolationException e) {
             throw new DirNotEmptyChimeraFsException("directory is not empty");
         }
 
@@ -299,17 +301,28 @@ public class FsSqlDriver {
         if (!removeEntryInParent(parent, name, inode)) {
             return false;
         }
+        // hard link counts
         decNlink(inode);
 
-        removeInodeIfUnlinked(inode);
+        _jdbc.execute((ConnectionCallback<Void>) con -> {
+            Savepoint savepoint = null;
+            try {
+                savepoint = con.setSavepoint();
+                removeInodeIfUnlinked(inode);
+                con.commit();
+            } catch (DataIntegrityViolationException e) {
+                // yet another hardlink
+                if (savepoint != null) {
+                    con.rollback(savepoint);
+                }
+            }
 
-        /* During bulk deletion of files in the same directory,
-         * updating the parent inode is often a contention point. The
-         * link count on the parent is updated last to reduce the time
-         * in which the directory inode is locked by the database.
-         */
-        decNlink(parent);
+            return null;
+        });
 
+        // trigger mtime update of parent dir.
+        // Postgres driver makes it different.
+        decNlink(parent, 0);
         return true;
     }
 
@@ -457,9 +470,14 @@ public class FsSqlDriver {
             throw new JdbcUpdateAffectedIncorrectNumberOfRowsException(moveLink, 1, n);
         }
 
+        int nlinkDelta = 0;
+        if (inode.isDirectory()) {
+            nlinkDelta = 1;
+        }
+
         if (!srcDir.equals(destDir)) {
-            incNlink(destDir);
-            decNlink(srcDir);
+            incNlink(destDir, nlinkDelta);
+            decNlink(srcDir, nlinkDelta);
         } else {
             incNlink(srcDir, 0);
         }
@@ -542,7 +560,7 @@ public class FsSqlDriver {
         Stat stat = createInode(id, type, owner, group, mode, nlink, size);
         FsInode inode = new FsInode(parent.getFs(), stat.getIno(), FsInodeType.INODE, 0, stat);
         createEntryInParent(parent, name, inode);
-        incNlink(parent);
+        incNlink(parent, type == UnixPermission.S_IFDIR ? 1 : 0);
         return inode;
     }
 
@@ -642,12 +660,12 @@ public class FsSqlDriver {
         return new FsInode(inode.getFs(), inode.ino(), FsInodeType.INODE, level, stat);
     }
 
-    boolean removeInodeIfUnlinked(FsInode inode) {
+    void removeInodeIfUnlinked(FsInode inode) {
         List<String> ids
-                = _jdbc.queryForList("SELECT ipnfsid FROM t_inodes WHERE inumber=? AND inlink=0 FOR UPDATE",
+                = _jdbc.queryForList("SELECT ipnfsid FROM t_inodes WHERE inumber=? FOR UPDATE",
                                      String.class, inode.ino());
         if (ids.isEmpty()) {
-            return false;
+            return;
         }
         if (ids.size() > 1) {
             throw new IncorrectResultSizeDataAccessException(1, ids.size());
@@ -670,7 +688,6 @@ public class FsSqlDriver {
                     ps.setTimestamp(3, now);
                 });
         _jdbc.update("DELETE FROM t_inodes WHERE inumber=?", inode.ino());
-        return true;
     }
 
     boolean removeInodeLevel(FsInode inode, int level) {
