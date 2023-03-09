@@ -326,30 +326,41 @@ public class FsSqlDriver {
         return true;
     }
 
-    void remove(FsInode inode) {
-        if (inode.isDirectory()) {
-            removeTag(inode);
-        }
+    void remove(FsInode inode) throws DirNotEmptyChimeraFsException {
 
         /* Updating the inode effectively blocks anybody else from changing it and thus also from
          * adding more links.
          */
-        _jdbc.update("UPDATE t_inodes SET inlink=0 WHERE inumber=?", inode.ino());
+        _jdbc.update("UPDATE t_inodes SET ictime=now() WHERE inumber=?", inode.ino());
 
         /* Remove all hard-links. */
         List<Long> parents =
-                _jdbc.queryForList(
-                        "SELECT iparent FROM t_dirs WHERE ichild=?",
-                        Long.class, inode.ino());
-        for (Long parent : parents) {
-            decNlink(new FsInode(inode.getFs(), parent));
-        }
-        int n = _jdbc.update("DELETE FROM t_dirs WHERE ichild=?", inode.ino());
-        if (n != parents.size()) {
-            throw new JdbcUpdateAffectedIncorrectNumberOfRowsException("DELETE FROM t_dirs WHERE ichild=?", parents.size(), n);
+              _jdbc.queryForList(
+                    "SELECT iparent FROM t_dirs WHERE ichild=?",
+                    Long.class, inode.ino());
+
+        boolean isDir = inode.isDirectory();
+        if (isDir) {
+            removeTag(inode);
         }
 
-        removeInodeIfUnlinked(inode);
+        for (Long parent : parents) {
+            decNlink(new FsInode(inode.getFs(), parent), isDir ? 1 : 0);
+        }
+
+        int n = _jdbc.update("DELETE FROM t_dirs WHERE ichild=?", inode.ino());
+        if (n != parents.size()) {
+            throw new JdbcUpdateAffectedIncorrectNumberOfRowsException(
+                  "DELETE FROM t_dirs WHERE ichild=?", parents.size(), n);
+        }
+
+        try {
+            removeInodeIfUnlinked(inode);
+        } catch (DataIntegrityViolationException e) {
+            if (isDir) {
+                throw new DirNotEmptyChimeraFsException("directory is not empty");
+            }
+        }
     }
 
     public Stat stat(String id) {
