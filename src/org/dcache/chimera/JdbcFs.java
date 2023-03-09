@@ -285,21 +285,43 @@ public class JdbcFs implements FileSystemProvider {
      * @throws ChimeraFsException
      */
     @Override
-    public FsInode createHLink(FsInode parent, FsInode inode, String name) throws ChimeraFsException {
+    public FsInode createHLink(FsInode parent, FsInode inode, String name)
+          throws ChimeraFsException {
 
         checkNameLength(name);
 
         return inTransaction(status -> {
             try {
+
+
+                Stat parentStat = parent.stat();
+                if (parentStat == null) {
+                    throw new FileNotFoundChimeraFsException("Parent directory not exists");
+                }
+
+                if ((parentStat.getMode() & UnixPermission.F_TYPE) != UnixPermission.S_IFDIR) {
+                    throw new NotDirChimeraException(parent);
+                }
+
+                Stat inodeStat = inode.stat();
+                if (inodeStat == null) {
+                    throw new FileNotFoundChimeraFsException();
+                }
+
+                if ((inodeStat.getMode() & UnixPermission.F_TYPE) == UnixPermission.S_IFDIR) {
+                    throw new PermissionDeniedChimeraFsException("hard link not allowed for directory");
+                }
+
                 _sqlDriver.createEntryInParent(parent, name, inode);
                 _sqlDriver.incNlink(inode);
-                _sqlDriver.incNlink(parent);
+                _sqlDriver.incNlink(parent, 0);
             } catch (DuplicateKeyException e) {
                 throw new FileExistsChimeraFsException(e);
             }
             return inode;
         });
     }
+
 
     @Override
     public FsInode createFile(String path) throws ChimeraFsException {

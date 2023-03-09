@@ -108,8 +108,8 @@ public class BasicTest extends ChimeraTestCaseHelper {
 
         FsInode newFile = base.create("testCreateFile", 0, 0, 0644);
 
-        assertEquals("file creation has to increase parent's nlink count by one",
-                base.stat().getNlink(), stat.getNlink() + 1);
+        assertEquals("file creation shouldn't change parent's nlink count",
+                base.stat().getNlink(), stat.getNlink());
         assertTrue("file creation has to update parent's mtime", base.stat().getMTime() > stat.getMTime());
         assertEquals("new file should have link count equal to one", newFile.stat().getNlink(), 1);
         assertTrue("change count is not updated", stat.getGeneration() != base.stat().getGeneration());
@@ -318,26 +318,6 @@ public class BasicTest extends ChimeraTestCaseHelper {
                 _ready.countDown();
             }
         }
-    }
-
-    @Test
-    public void testParallelCreate() throws Exception {
-
-        FsInode base = _rootInode.mkdir("junit");
-        Stat stat = base.stat();
-
-        CountDownLatch readyToStart = new CountDownLatch(PARALLEL_THREADS_COUNT);
-        CountDownLatch testsReady = new CountDownLatch(PARALLEL_THREADS_COUNT);
-
-        for (int i = 0; i < PARALLEL_THREADS_COUNT; i++) {
-
-            new ParallelCreateTestRunnerThread("TestRunner" + i, base, testsReady, readyToStart).start();
-            readyToStart.countDown();
-        }
-
-        testsReady.await();
-        assertEquals("new dir should have link count equal to two", base.stat().getNlink(), stat.getNlink() + PARALLEL_THREADS_COUNT);
-
     }
 
     @Test
